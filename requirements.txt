@@ -1,0 +1,1 @@
+Streamlit google dash genai python dash dotenv pillow pypdf.

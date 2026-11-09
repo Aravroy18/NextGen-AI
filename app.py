@@ -7,7 +7,7 @@ from google import genai
 from PIL import Image
 from pypdf import PdfReader
 
-from auto_pilot import generate_with_autopilot
+
 
 
 # ==========================================

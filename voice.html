@@ -1,0 +1,449 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXTGEN AI Voice</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: #0b1020;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+.container {
+  max-width: 600px;
+  margin: 25px auto;
+  padding: 25px;
+  background: #151d33;
+  border: 1px solid #293654;
+  border-radius: 22px;
+}
+
+h1 { color: #65e6ff; }
+
+.subtitle {
+  color: #aab6d3;
+  line-height: 1.6;
+}
+
+.status {
+  margin: 22px auto;
+  padding: 12px;
+  background: #202c46;
+  border-radius: 12px;
+  color: #65e6ff;
+}
+
+.orb {
+  width: 125px;
+  height: 125px;
+  margin: 25px auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, #65e6ff, #3154b8);
+  box-shadow: 0 0 35px #287cff66;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin: 7px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#start { background: #20d6a0; color: #061b16; }
+#stop { background: #ff5364; color: white; }
+#mute { background: #354461; color: white; }
+
+button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.panel {
+  text-align: left;
+  background: #202c46;
+  border-radius: 12px;
+  padding: 15px;
+  margin-top: 20px;
+  min-height: 100px;
+}
+
+#chat {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  max-height: 260px;
+  overflow-y: auto;
+  color: #e7edff;
+}
+
+.small {
+  font-size: 12px;
+  color: #9baac9;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <h1>🎙️ NEXTGEN AI</h1>
+  <h2>LIVE VOICE ASSISTANT</h2>
+
+  <p class="subtitle">
+    Talk naturally with your AI assistant.
+    Speak in Hindi or English and listen to its replies.
+  </p>
+
+  <div class="orb" id="orb">🎙️</div>
+
+  <div class="status" id="status">
+    Ready to connect
+  </div>
+
+  <button id="start">📞 Start Voice Call</button>
+  <button id="stop" disabled>⏹ End Call</button>
+  <button id="mute" disabled>🔇 Mute Speaker</button>
+
+  <div class="panel">
+    <h3>💬 Live Conversation</h3>
+    <div id="chat">Your conversation will appear here.</div>
+  </div>
+
+  <p class="small">
+    Microphone access is required for voice conversations.
+  </p>
+</div>
+
+<script>
+const TOKEN = "__LIVE_TOKEN__";
+const MODEL = "gemini-3.8-live";
+
+let ws = null;
+let audioContext = null;
+let micStream = null;
+let processor = null;
+let micSource = null;
+
+let active = false;
+let speakerMuted = false;
+let nextPlayTime = 0;
+let playing = [];
+
+const status = document.getElementById("status");
+const chat = document.getElementById("chat");
+const orb = document.getElementById("orb");
+const startBtn = document.getElementById("start");
+const stopBtn = document.getElementById("stop");
+const muteBtn = document.getElementById("mute");
+
+function setStatus(message) {
+  status.textContent = message;
+}
+
+function log(message) {
+  if (chat.textContent === "Your conversation will appear here.") {
+    chat.textContent = "";
+  }
+  chat.textContent += message + "\n\n";
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function base64ToBytes(data) {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function playAudio(data) {
+  if (!audioContext || speakerMuted) return;
+
+  const bytes = base64ToBytes(data);
+  const pcm = new Int16Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    Math.floor(bytes.byteLength / 2)
+  );
+
+  const samples = new Float32Array(pcm.length);
+
+  for (let i = 0; i < pcm.length; i++) {
+    samples[i] = pcm[i] / 32768;
+  }
+
+  const buffer = audioContext.createBuffer(
+    1, samples.length, 24000
+  );
+
+  buffer.copyToChannel(samples, 0);
+
+  const source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioContext.destination);
+
+  const startAt = Math.max(
+    nextPlayTime,
+    audioContext.currentTime
+  );
+
+  source.start(startAt);
+  nextPlayTime = startAt + buffer.duration;
+
+  playing.push(source);
+
+  source.onended = () => {
+    playing = playing.filter(item => item !== source);
+  };
+
+  setStatus("🔊 NEXTGEN AI is speaking...");
+  orb.textContent = "🔊";
+}
+
+function stopAudio() {
+  playing.forEach(source => {
+    try { source.stop(); } catch (e) {}
+  });
+
+  playing = [];
+
+  if (audioContext) {
+    nextPlayTime = audioContext.currentTime;
+  }
+}
+
+function sendMicrophoneAudio(floatSamples) {
+  if (!active || !ws || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const pcm = new Int16Array(floatSamples.length);
+
+  for (let i = 0; i < floatSamples.length; i++) {
+    const value = Math.max(-1, Math.min(1, floatSamples[i]));
+    pcm[i] = value < 0 ? value * 32768 : value * 32767;
+  }
+
+  const bytes = new Uint8Array(pcm.buffer);
+
+  ws.send(JSON.stringify({
+    realtimeInput: {
+      audio: {
+        mimeType: "audio/pcm;rate=16000",
+        data: bytesToBase64(bytes)
+      }
+    }
+  }));
+}
+
+async function startCall() {
+  try {
+    if (!TOKEN || TOKEN === "__LIVE_TOKEN__") {
+      throw new Error("Live token missing. Generate a fresh token.");
+    }
+
+    startBtn.disabled = true;
+    setStatus("🎤 Requesting microphone...");
+    orb.textContent = "🎙️";
+
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true
+      }
+    });
+
+    audioContext = new AudioContext({ sampleRate: 16000 });
+    await audioContext.resume();
+
+    setStatus("Connecting to NEXTGEN AI...");
+
+    ws = new WebSocket(
+      "wss://generativelanguage.googleapis.com/ws/" +
+      "google.ai.generativelanguage.v1alpha.GenerativeService." +
+      "BidiGenerateContentConstrained?access_token=" +
+      encodeURIComponent(TOKEN)
+    );
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        setup: {
+          model: "models/" + MODEL,
+          generationConfig: {
+            responseModalities: ["AUDIO"]
+          },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {}
+        }
+      }));
+    };
+
+    ws.onmessage = async (event) => {
+      let raw = event.data;
+
+      if (raw instanceof Blob) {
+        raw = await raw.text();
+      }
+
+      const msg = JSON.parse(raw);
+
+      if (msg.setupComplete) {
+        active = true;
+        stopBtn.disabled = false;
+        muteBtn.disabled = false;
+
+        setStatus("🟢 Connected — Listening...");
+        log("NEXTGEN AI: Hello! I am listening. How can I help you?");
+
+        micSource = audioContext.createMediaStreamSource(micStream);
+
+        processor = audioContext.createScriptProcessor(
+          2048, 1, 1
+        );
+
+        processor.onaudioprocess = (event) => {
+          if (!active) return;
+
+          sendMicrophoneAudio(
+            event.inputBuffer.getChannelData(0)
+          );
+        };
+
+        micSource.connect(processor);
+        processor.connect(audioContext.destination);
+        return;
+      }
+
+      const server = msg.serverContent;
+      if (!server) return;
+
+      if (server.inputTranscription?.text) {
+        log("YOU: " + server.inputTranscription.text);
+        setStatus("🧠 NEXTGEN AI is thinking...");
+      }
+
+      if (server.outputTranscription?.text) {
+        log("NEXTGEN AI: " + server.outputTranscription.text);
+      }
+
+      if (server.interrupted) {
+        stopAudio();
+        setStatus("🎤 Listening to you...");
+        orb.textContent = "🎙️";
+      }
+
+      if (server.modelTurn?.parts) {
+        for (const part of server.modelTurn.parts) {
+          if (part.inlineData?.data) {
+            playAudio(part.inlineData.data);
+          }
+        }
+      }
+
+      if (server.turnComplete) {
+        setStatus("🎤 Listening to you...");
+        orb.textContent = "🎙️";
+      }
+    };
+
+    ws.onerror = () => {
+      setStatus("Connection error. Please try again.");
+    };
+
+    ws.onclose = (event) => {
+      if (active) {
+        log("Connection closed. Code: " + event.code);
+      }
+      stopCall();
+    };
+
+  } catch (error) {
+    setStatus("Error: " + error.message);
+    stopCall();
+  }
+}
+
+function stopCall() {
+  active = false;
+
+  if (processor) {
+    processor.disconnect();
+    processor = null;
+  }
+
+  if (micSource) {
+    micSource.disconnect();
+    micSource = null;
+  }
+
+  if (ws) {
+    const oldSocket = ws;
+    ws = null;
+    if (oldSocket.readyState < WebSocket.CLOSING) {
+      oldSocket.close();
+    }
+  }
+
+  if (micStream) {
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+  }
+
+  stopAudio();
+
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  muteBtn.disabled = true;
+
+  setStatus("Call ended");
+  orb.textContent = "🎙️";
+}
+
+startBtn.addEventListener("click", startCall);
+stopBtn.addEventListener("click", stopCall);
+
+muteBtn.addEventListener("click", () => {
+  speakerMuted = !speakerMuted;
+
+  if (speakerMuted) {
+    stopAudio();
+    muteBtn.textContent = "🔊 Unmute Speaker";
+  } else {
+    muteBtn.textContent = "🔇 Mute Speaker";
+  }
+});
+</script>
+</body>
+</html>

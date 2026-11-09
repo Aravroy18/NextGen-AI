@@ -23,8 +23,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    API_KEY = os.getenv("GEMINI_API_KEY")
 
-API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = "gemini-3.8-flash"
 
 

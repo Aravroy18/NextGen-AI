@@ -1,20 +1,12 @@
 import datetime
 from google import genai
 
-
 LIVE_MODEL = "gemini-3.8-live"
 
-
 def create_live_token(api_key):
+    client = genai.Client(api_key=api_key)
 
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"api_version": "v1alpha"}
-    )
-
-    now = datetime.datetime.now(
-        datetime.timezone.utc
-    )
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     token = client.auth_tokens.create(
         config={

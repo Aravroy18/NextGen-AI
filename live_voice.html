@@ -217,12 +217,11 @@ async function startCall() {
       if (active) stopCall();
     };
 
-  } catch (error) {
-    status.textContent = "Error: " + error.message;
-    stopCall();
-  }
+  } catch(error) {
+  const message = error.name + ": " + error.message;
+  stopCall();
+  status.textContent = "ERROR: " + message;
 }
-
 function stopCall() {
   active = false;
 

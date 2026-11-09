@@ -2,12 +2,22 @@ import os
 import io
 import streamlit as st
 
+
+API_KEY = ""
+
+try:
+    API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+except Exception:
+    pass
+
+if not API_KEY:
+    API_KEY = os.getenv("GEMINI_API_KEY", "")
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
 from pypdf import PdfReader
 
-from auto_pilot import generate_with_autopilot
+from google.genai import types
 
 
 # ==========================================
@@ -24,8 +34,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL = "gemini-3.8-flash"
+API_KEY = ""
+
+try:
+    API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+except Exception:
+    pass
+
+if not API_KEY:
+    API_KEY = os.getenv("GEMINI_API_KEY", "")
+MODEL = "gemini-2.5-flash-lite"
 
 
 # ==========================================
@@ -113,15 +131,13 @@ if "last_provider" not in st.session_state:
 # ==========================================
 
 def get_client():
-
     if not API_KEY:
-        raise ValueError(
-            "GEMINI_API_KEY नहीं मिली। अपनी .env फाइल चेक करें।"
-        )
+        raise ValueError("GEMINI_API_KEY नहीं मिली।")
 
     if st.session_state.client is None:
         st.session_state.client = genai.Client(
-            api_key=API_KEY
+            api_key=API_KEY,
+            http_options=types.HttpOptions(timeout=30000)
         )
 
     return st.session_state.client
@@ -132,18 +148,22 @@ def get_client():
 # ==========================================
 
 def generate_answer(contents):
-
     client = get_client()
 
-    answer, provider = generate_with_autopilot(
-        client=client,
+    response = client.models.generate_content(
         model=MODEL,
-        contents=contents
+        contents=contents,
+        config=types.GenerateContentConfig(
+            max_output_tokens=256,
+            temperature=0.7
+        )
     )
 
-    st.session_state.last_provider = provider
+    if not response.text:
+        raise ValueError("Gemini ने खाली जवाब दिया।")
 
-    return answer
+    st.session_state.last_provider = "Gemini Direct"
+    return response.text
 
 
 # ==========================================
@@ -176,7 +196,7 @@ else:
     st.sidebar.error("API KEY MISSING")
 
 st.sidebar.caption("AI Engine: Gemini")
-st.sidebar.caption("Auto-Pilot: Enabled")
+st.sidebar.caption("AI Engine: Gemini Direct")
 st.sidebar.caption(
     f"Last Provider: {st.session_state.last_provider}"
 )

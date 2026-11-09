@@ -6,17 +6,11 @@ from dotenv import load_dotenv
 from google import genai
 from PIL import Image
 from pypdf import PdfReader
-
-from auto_pilot import generate_with_autopilot
-
-
 # ==========================================
 # NEXTGEN AI - VERSION 3.0
 # Gemini + Auto-Pilot
 # ==========================================
-
 load_dotenv()
-
 st.set_page_config(
     page_title="NEXTGEN AI",
     page_icon="🚀",
@@ -119,7 +113,7 @@ def get_client():
 
     if not API_KEY:
         raise ValueError(
-            "GEMINI_API_KEY नहीं मिली। अपनी .env फाइल चेक करें।"
+            "GEMINI_API_KEY
         )
 
     if st.session_state.client is None:

@@ -6,22 +6,25 @@ from dotenv import load_dotenv
 from google import genai
 from PIL import Image
 from pypdf import PdfReader
+
+from auto_pilot import generate_with_autopilot
+
+
 # ==========================================
 # NEXTGEN AI - VERSION 3.0
 # Gemini + Auto-Pilot
 # ==========================================
+
 load_dotenv()
+
 st.set_page_config(
     page_title="NEXTGEN AI",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    API_KEY = os.getenv("GEMINI_API_KEY")
 
+API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = "gemini-3.8-flash"
 
 
@@ -113,7 +116,7 @@ def get_client():
 
     if not API_KEY:
         raise ValueError(
-            "GEMINI_API_KEY
+            "GEMINI_API_KEY नहीं मिली। अपनी .env फाइल चेक करें।"
         )
 
     if st.session_state.client is None:

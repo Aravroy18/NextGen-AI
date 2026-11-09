@@ -249,8 +249,13 @@ function stopCall() {
   status.textContent = "Call ended";
 }
 
-document.getElementById("start").onclick = startCall;
-document.getElementById("stop").onclick = stopCall;
+document.getElementById("start").onclick = () => {
+  status.textContent = "START BUTTON CLICKED";
+};
+
+document.getElementById("stop").onclick = () => {
+  status.textContent = "END BUTTON CLICKED";
+};
 </script>
 </body>
 </html>

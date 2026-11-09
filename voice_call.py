@@ -1,5 +1,6 @@
 import datetime
 from google import genai
+from google.genai import types
 
 LIVE_MODEL = "gemini-3.8-live"
 

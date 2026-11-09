@@ -236,7 +236,18 @@ if page == "AI Chat":
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            
+if st.button("📞 Test Live Call"):
+    try:
+        if not API_KEY:
+            st.error("GEMINI_API_KEY missing")
+        else:
+            token = create_live_token(API_KEY)
+            st.session_state.live_token = token
+            st.success("Live API token created successfully!")
 
+    except Exception as e:
+        st.error(f"Live API Error: {e}")
     prompt = st.chat_input(
         "Message NEXTGEN AI..."
     )

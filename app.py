@@ -43,7 +43,7 @@ except Exception:
 
 if not API_KEY:
     API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL = "gemini-2.5-flash-lite"
+MODEL = "gemini-3.5-flash-lite"
 
 
 # ==========================================

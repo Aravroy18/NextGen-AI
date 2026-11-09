@@ -1,0 +1,257 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+  background:#101322;
+  color:white;
+  font-family:Arial;
+  text-align:center;
+  padding:20px;
+}
+button {
+  padding:14px 22px;
+  border:0;
+  border-radius:25px;
+  margin:8px;
+  font-size:16px;
+  cursor:pointer;
+}
+#start {background:#20c997;color:#071b16;}
+#stop {background:#ff5252;color:white;}
+#status {color:#20c997;margin:15px;}
+#chat {
+  text-align:left;
+  background:#20263b;
+  border-radius:12px;
+  padding:12px;
+  min-height:100px;
+  white-space:pre-wrap;
+}
+</style>
+</head>
+<body>
+
+<h2>🎙️ NEXTGEN AI LIVE</h2>
+<p id="status">Ready to connect</p>
+
+<button id="start">📞 Start Live Call</button>
+<button id="stop">End Call</button>
+
+<h3>Conversation</h3>
+<div id="chat">Your conversation will appear here.</div>
+
+<script>
+const TOKEN = "__LIVE_TOKEN__";
+const MODEL = "gemini-3.8-live";
+
+let ws, audioContext, micStream, processor;
+let nextPlayTime = 0;
+let playing = [];
+let active = false;
+
+const status = document.getElementById("status");
+const chat = document.getElementById("chat");
+
+function log(text) {
+  chat.textContent += "\n" + text;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function base64ToBytes(data) {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function playAudio(data) {
+  const bytes = base64ToBytes(data);
+  const pcm = new Int16Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    Math.floor(bytes.byteLength / 2)
+  );
+
+  const audio = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) {
+    audio[i] = pcm[i] / 32768;
+  }
+
+  const buffer = audioContext.createBuffer(1, audio.length, 24000);
+  buffer.copyToChannel(audio, 0);
+
+  const source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioContext.destination);
+
+  const startAt = Math.max(nextPlayTime, audioContext.currentTime);
+  source.start(startAt);
+  nextPlayTime = startAt + buffer.duration;
+  playing.push(source);
+  source.onended = () => {
+    playing = playing.filter(item => item !== source);
+  };
+}
+
+async function startCall() {
+  try {
+    if (!TOKEN || TOKEN === "__LIVE_TOKEN__") {
+      throw new Error("Live token missing. Generate a fresh token.");
+    }
+
+    status.textContent = "Requesting microphone...";
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true
+      }
+    });
+
+    audioContext = new AudioContext({sampleRate:16000});
+    await audioContext.resume();
+
+    status.textContent = "Connecting to Gemini...";
+
+    ws = new WebSocket(
+      "wss://generativelanguage.googleapis.com/ws/" +
+      "google.ai.generativelanguage.v1beta.GenerativeService." +
+      "BidiGenerateContentConstrained?access_token=" +
+      encodeURIComponent(TOKEN)
+    );
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        setup: {
+          model: "models/" + MODEL,
+          generationConfig: {
+            responseModalities: ["AUDIO"]
+          },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {}
+        }
+      }));
+    };
+
+    ws.onmessage = async event => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.setupComplete) {
+        active = true;
+        status.textContent = "🟢 Live Call Connected";
+        log("NEXTGEN AI: Connected. You can speak now.");
+
+        const input = audioContext.createMediaStreamSource(micStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        processor.onaudioprocess = e => {
+          if (!active || ws.readyState !== WebSocket.OPEN) return;
+
+          const samples = e.inputBuffer.getChannelData(0);
+          const pcm = new Int16Array(samples.length);
+
+          for (let i = 0; i < samples.length; i++) {
+            const s = Math.max(-1, Math.min(1, samples[i]));
+            pcm[i] = s < 0 ? s * 32768 : s * 32767;
+          }
+
+          const bytes = new Uint8Array(pcm.buffer);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+
+          ws.send(JSON.stringify({
+            realtimeInput: {
+              mediaChunks: [{
+                mimeType: "audio/pcm;rate=16000",
+                data: btoa(binary)
+              }]
+            }
+          }));
+        };
+
+        input.connect(processor);
+        processor.connect(audioContext.destination);
+      }
+
+      const server = msg.serverContent;
+
+      if (server) {
+        if (server.inputTranscription?.text) {
+          log("YOU: " + server.inputTranscription.text);
+        }
+
+        if (server.outputTranscription?.text) {
+          log("NEXTGEN AI: " + server.outputTranscription.text);
+        }
+
+        if (server.modelTurn?.parts) {
+          for (const part of server.modelTurn.parts) {
+            if (part.inlineData?.data) {
+              playAudio(part.inlineData.data);
+            }
+          }
+        }
+
+        if (server.interrupted) {
+          playing.forEach(source => {
+            try { source.stop(); } catch(e) {}
+          });
+          playing = [];
+          nextPlayTime = audioContext.currentTime;
+        }
+      }
+    };
+
+    ws.onerror = () => {
+      status.textContent = "Connection error";
+    };
+
+    ws.onclose = () => {
+      if (active) stopCall();
+    };
+
+  } catch (error) {
+    status.textContent = "Error: " + error.message;
+    stopCall();
+  }
+}
+
+function stopCall() {
+  active = false;
+
+  if (processor) {
+    processor.disconnect();
+    processor = null;
+  }
+
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  if (micStream) {
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+  }
+
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+
+  playing = [];
+  status.textContent = "Call ended";
+}
+
+document.getElementById("start").onclick = startCall;
+document.getElementById("stop").onclick = stopCall;
+</script>
+</body>
+</html>

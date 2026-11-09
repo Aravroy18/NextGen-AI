@@ -17,7 +17,7 @@ def create_live_token(api_key):
             "uses": 1,
             "expire_time": now + datetime.timedelta(minutes=30),
             "new_session_expire_time": now + datetime.timedelta(minutes=1),
-            "live_constrained_parameters": {
+            "live_connect_constraints": {
                 "model": LIVE_MODEL,
                 "config": {
                     "response_modalities": ["AUDIO"],

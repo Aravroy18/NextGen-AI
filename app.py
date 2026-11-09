@@ -237,13 +237,6 @@ if page == "AI Chat":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             
-if st.button("📞 Test Live Call"):
-    try:
-        if not API_KEY:
-            st.error("GEMINI_API_KEY missing")
-        else:
-            token = create_live_token(API_KEY)
-            st.session_state.live_token = token
             st.success("Live API token created successfully!")
 
     except Exception as e:

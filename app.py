@@ -2,6 +2,7 @@ import os
 import io
 import streamlit as st
 import asyncio
+import streamlit.components.v1 as components
 
 
 API_KEY = ""

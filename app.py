@@ -567,19 +567,19 @@ elif page == "About":
 
     One Platform. Endless Possibilities.
     """)
-
-# ==========================================
+#===========================================
 # FOOTER
 # ==========================================
 
 st.markdown("---")
 
-st.markdown("""
-<div class="footer">
-    NEXTGEN AI  2026
-    <br>
-    Powered by Artificial Intelligence
-</div>
-""", unsafe_allow_html=True)
+footer_html = (
+    '<div class="footer">'
+    'NEXTGEN AI 2026<br>'
+    'Powered by Artificial Intelligence'
+    '</div>'
+)
+
+st.markdown(footer_html, unsafe_allow_html=True)
 
 

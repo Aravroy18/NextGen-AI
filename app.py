@@ -321,7 +321,7 @@ if page == "AI Chat":
             "content": answer
         })
         
-system_instruction = """
+system_instruction = 
 You are NEXTGEN AI, an independent AI platform.
 
 IDENTITY:

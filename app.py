@@ -1,29 +1,19 @@
+
 import os
 import io
 import streamlit as st
-import asyncio
 import streamlit.components.v1 as components
 
-
-API_KEY = ""
-
-try:
-    API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-except Exception:
-    pass
-
-if not API_KEY:
-    API_KEY = os.getenv("GEMINI_API_KEY", "")
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from PIL import Image
 from pypdf import PdfReader
-from google.genai import types
 from voice_call import create_live_token
 
+
 # ==========================================
-# NEXTGEN AI - VERSION 3.0
-# Gemini + Auto-Pilot
+# NEXTGEN AI - VERSION 4.0
 # ==========================================
 
 load_dotenv()
@@ -35,6 +25,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==========================================
+# API CONFIGURATION
+# ==========================================
+
 API_KEY = ""
 
 try:
@@ -44,7 +38,43 @@ except Exception:
 
 if not API_KEY:
     API_KEY = os.getenv("GEMINI_API_KEY", "")
+
 MODEL = "gemini-3.5-flash-lite"
+
+
+# ==========================================
+# SYSTEM INSTRUCTION
+# ==========================================
+
+SYSTEM_INSTRUCTION = """
+You are NEXTGEN AI, an independent AI platform.
+
+PLATFORM IDENTITY:
+- Platform Name: NEXTGEN AI
+- Creator: Arav
+- Developer: Arav
+- Owner: Arav
+
+IDENTITY RULES:
+
+If the user asks who created, developed, built,
+or owns NEXTGEN AI, answer:
+
+"NEXTGEN AI was created and developed by Arav.
+Arav is the owner of NEXTGEN AI."
+
+In Hindi:
+
+"NEXTGEN AI को Arav ने बनाया और विकसित किया है।
+Arav ही NEXTGEN AI के मालिक हैं।"
+
+Google Gemini may provide the underlying AI technology.
+However, Arav is the creator, developer, and owner
+of the NEXTGEN AI platform.
+
+Answer clearly, accurately, and politely.
+Use the user's language whenever possible.
+"""
 
 
 # ==========================================
@@ -53,6 +83,7 @@ MODEL = "gemini-3.5-flash-lite"
 
 st.markdown("""
 <style>
+
 .stApp {
     background: linear-gradient(
         135deg,
@@ -77,7 +108,11 @@ p, label {
 }
 
 .stButton button {
-    background: linear-gradient(90deg, #7c3aed, #2563eb);
+    background: linear-gradient(
+        90deg,
+        #7c3aed,
+        #2563eb
+    );
     color: white;
     border: none;
     border-radius: 12px;
@@ -109,6 +144,7 @@ p, label {
     color: #8888aa;
     padding: 20px;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,44 +162,59 @@ if "client" not in st.session_state:
 if "last_provider" not in st.session_state:
     st.session_state.last_provider = "Not used yet"
 
+if "live_token" not in st.session_state:
+    st.session_state.live_token = None
+
 
 # ==========================================
 # GEMINI CONNECTION
 # ==========================================
 
 def get_client():
+
     if not API_KEY:
-        raise ValueError("GEMINI_API_KEY नहीं मिली।")
+        raise ValueError(
+            "GEMINI_API_KEY नहीं मिली। "
+            "Streamlit Secrets में API key जोड़ें।"
+        )
 
     if st.session_state.client is None:
+
         st.session_state.client = genai.Client(
             api_key=API_KEY,
-            http_options=types.HttpOptions(timeout=30000)
+            http_options=types.HttpOptions(
+                timeout=30000
+            )
         )
 
     return st.session_state.client
 
 
 # ==========================================
-# AUTO-PILOT AI ENGINE
+# AI ENGINE
 # ==========================================
 
 def generate_answer(contents):
+
     client = get_client()
 
     response = client.models.generate_content(
         model=MODEL,
         contents=contents,
         config=types.GenerateContentConfig(
-            max_output_tokens=256,
+            system_instruction=SYSTEM_INSTRUCTION,
+            max_output_tokens=1024,
             temperature=0.7
         )
     )
 
     if not response.text:
-        raise ValueError("Gemini ने खाली जवाब दिया।")
+        raise ValueError(
+            "AI ने खाली जवाब दिया। दोबारा कोशिश करें।"
+        )
 
     st.session_state.last_provider = "Gemini Direct"
+
     return response.text
 
 
@@ -197,7 +248,6 @@ else:
     st.sidebar.error("API KEY MISSING")
 
 st.sidebar.caption("AI Engine: Gemini")
-st.sidebar.caption("AI Engine: Gemini Direct")
 st.sidebar.caption(
     f"Last Provider: {st.session_state.last_provider}"
 )
@@ -205,6 +255,7 @@ st.sidebar.caption(
 st.sidebar.markdown("---")
 
 if st.sidebar.button("🗑️ Clear All Chats"):
+
     st.session_state.messages = []
     st.rerun()
 
@@ -215,9 +266,13 @@ if st.sidebar.button("🗑️ Clear All Chats"):
 
 st.markdown("""
 <div class="hero">
+
     <h1>🚀 NEXTGEN AI</h1>
+
     <h3>One Platform. Endless Possibilities.</h3>
+
     <p>Your intelligent AI universe.</p>
+
 </div>
 """, unsafe_allow_html=True)
 
@@ -234,23 +289,46 @@ if page == "AI Chat":
         "Ask questions, learn, create and explore."
     )
 
+    # Chat history
+
     for msg in st.session_state.messages:
+
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    
+    # Live Voice
+
+    st.markdown("---")
+
     if st.button("📞 Start Live Call"):
+
         try:
+
             if not API_KEY:
                 st.error("GEMINI_API_KEY missing")
+
             else:
-                st.session_state.live_token = create_live_token(API_KEY)
+
+                with st.spinner("Connecting Live Voice..."):
+
+                    st.session_state.live_token = (
+                        create_live_token(API_KEY)
+                    )
+
         except Exception as e:
+
             st.error(f"Live API Error: {e}")
 
-    if st.session_state.get("live_token"):
+    if st.session_state.live_token:
+
         try:
-            with open("live_voice.html", "r", encoding="utf-8") as f:
+
+            with open(
+                "live_voice.html",
+                "r",
+                encoding="utf-8"
+            ) as f:
+
                 voice_html = f.read()
 
             voice_html = voice_html.replace(
@@ -265,15 +343,16 @@ if page == "AI Chat":
             )
 
         except Exception as e:
-            st.error(f"Voice Interface Error: {e}")
 
+            st.error(
+                f"Voice Interface Error: {e}"
+            )
+
+    # Text Chat
 
     prompt = st.chat_input(
         "Message NEXTGEN AI..."
     )
-
-
-    
 
     if prompt:
 
@@ -298,16 +377,11 @@ if page == "AI Chat":
                     for m in recent_messages
                 )
 
-                contents = (
-                    "You are NEXTGEN AI, a helpful, "
-                    "intelligent and friendly AI assistant. "
-                    "Answer clearly and accurately. "
-                    "Use the user's language when possible.\n\n"
-                    + history
-                )
+                with st.spinner(
+                    "NEXTGEN AI is thinking..."
+                ):
 
-                with st.spinner("NEXTGEN AI is thinking..."):
-                    answer = generate_answer(contents)
+                    answer = generate_answer(history)
 
                 st.markdown(answer)
 
@@ -320,34 +394,7 @@ if page == "AI Chat":
             "role": "assistant",
             "content": answer
         })
-        
-system_instruction = 
-You are NEXTGEN AI, an independent AI platform.
 
-IDENTITY:
-- Platform Name: NEXTGEN AI
-- Creator: Arav
-- Developer: Arav
-- Owner: Arav
-
-STRICT IDENTITY RULES:
-If the user asks:
-"Who created you?"
-"Who developed you?"
-"Who is your owner?"
-"Who made NEXTGEN AI?"
-
-Always answer:
-"NEXTGEN AI was created and developed by Arav. Arav is the owner of NEXTGEN AI."
-
-In Hindi:
-"NEXTGEN AI को Arav ने बनाया और विकसित किया है। Arav ही NEXTGEN AI के मालिक हैं।"
-
-IMPORTANT:
-OpenAI or Google may provide underlying AI technology,
-but they are not the creators or owners of the NEXTGEN AI platform.
-Never confuse the platform creator with its AI technology provider.
-"""
 
 # ==========================================
 # PAGE 2: AI VISION
@@ -373,19 +420,19 @@ elif page == "AI Vision":
 
     if uploaded_image:
 
-        image = Image.open(
-            io.BytesIO(uploaded_image.getvalue())
-        )
+        try:
 
-        st.image(
-            image,
-            caption="Uploaded Image",
-            use_container_width=True
-        )
+            image = Image.open(
+                io.BytesIO(uploaded_image.getvalue())
+            )
 
-        if st.button("🔍 Analyze Image"):
+            st.image(
+                image,
+                caption="Uploaded Image",
+                use_container_width=True
+            )
 
-            try:
+            if st.button("🔍 Analyze Image"):
 
                 contents = [
                     question or "Describe this image in detail.",
@@ -393,13 +440,15 @@ elif page == "AI Vision":
                 ]
 
                 with st.spinner("AI is analyzing..."):
+
                     answer = generate_answer(contents)
 
                 st.success("Analysis complete")
                 st.markdown(answer)
 
-            except Exception as e:
-                st.error(f"Vision Error: {e}")
+        except Exception as e:
+
+            st.error(f"Vision Error: {e}")
 
 
 # ==========================================
@@ -426,8 +475,8 @@ elif page == "PDF Assistant":
             reader = PdfReader(pdf_file)
 
             pdf_text = "\n".join(
-                page.extract_text() or ""
-                for page in reader.pages
+                pdf_page.extract_text() or ""
+                for pdf_page in reader.pages
             )
 
             st.success(
@@ -448,9 +497,13 @@ elif page == "PDF Assistant":
             if st.button("🤖 Ask AI About PDF"):
 
                 if not question.strip():
-                    st.warning("Please enter a question.")
+
+                    st.warning(
+                        "Please enter a question."
+                    )
 
                 elif not pdf_text.strip():
+
                     st.warning(
                         "No readable text found in this PDF."
                     )
@@ -468,15 +521,20 @@ elif page == "PDF Assistant":
                     try:
 
                         with st.spinner("Reading PDF..."):
+
                             answer = generate_answer(contents)
 
                         st.markdown(answer)
 
                     except Exception as e:
+
                         st.error(f"PDF Error: {e}")
 
         except Exception as e:
-            st.error(f"Could not read PDF: {e}")
+
+            st.error(
+                f"Could not read PDF: {e}"
+            )
 
 
 # ==========================================
@@ -510,7 +568,7 @@ elif page == "AI Image":
 # PAGE 5: AI VIDEO
 # ==========================================
 
-elif page == "AI Vid
+elif page == "AI Video":
 
     st.header("🎬 AI Video Generator")
 
@@ -542,31 +600,36 @@ elif page == "About":
     st.header("🌍 About NEXTGEN AI")
 
     st.markdown("""
-    ## Welcome to NEXTGEN AI
+## Welcome to NEXTGEN AI
 
-    NEXTGEN AI is an AI-powered creative platform.
+NEXTGEN AI is an AI-powered creative platform.
 
-    ### Our Features
+### Our Features
 
-    - AI Chat
-    - AI Vision
-    - PDF Assistant
-    - AI Image Interface
-    - AI Video Interface
-    - Auto-Pilot Retry System
+- AI Chat
+- Live Voice
+- AI Vision
+- PDF Assistant
+- AI Image Interface
+- AI Video Interface
 
-    ### Technology
+### Creator & Developer
 
-    - Python
-    - Streamlit
-    - Google Gemini API
-    - Pillow
-    - PyPDF
+Arav
 
-    ### Our Vision
+### Technology
 
-    One Platform. Endless Possibilities.
-    """)
+- Python
+- Streamlit
+- Google Gemini API
+- Pillow
+- PyPDF
+
+### Our Vision
+
+One Platform. Endless Possibilities.
+""")
+
 
 # ==========================================
 # FOOTER
@@ -576,12 +639,13 @@ st.markdown("---")
 
 footer_html = (
     '<div class="footer">'
-    'NEXTGEN AI 2026<br>'
+    'NEXTGEN AI © 2026<br>'
+    'Created by Arav<br>'
     'Powered by Artificial Intelligence'
     '</div>'
 )
 
-st.markdown(footer_html, unsafe_allow_html=True)
-
-
-
+st.markdown(
+    footer_html,
+    unsafe_allow_html=True
+)

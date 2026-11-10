@@ -260,21 +260,17 @@ if st.sidebar.button("🗑️ Clear All Chats"):
     st.rerun()
 
 
+
 # ==========================================
 # MAIN HEADER
 # ==========================================
 
-st.markdown("""
-<div class="hero">
+st.title("🚀NEXTGEN AI")
 
-    <h1>🚀 NEXTGEN AI</h1>
+st.subheader("One Platform. Endless Possibilities.")
 
-    <h3>One Platform. Endless Possibilities.</h3>
+st.write("Your intelligent AI universe.")
 
-    <p>Your intelligent AI universe.</p>
-
-</div>
-""", unsafe_allow_html=True)
 
 
 # ==========================================

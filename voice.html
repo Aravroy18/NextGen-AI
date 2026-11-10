@@ -292,18 +292,46 @@ async function startCall() {
       encodeURIComponent(TOKEN)
     );
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        setup: {
-          model: "models/" + MODEL,
-          generationConfig: {
-            responseModalities: ["AUDIO"]
-          },
-          inputAudioTranscription: {},
-          outputAudioTranscription: {}
-        }
-      }));
-    };
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    setup: {
+      model: "models/" + MODEL,
+
+      systemInstruction: {
+        parts: [{
+          text: `
+You are NEXTGEN AI.
+
+Your owner and developer is Arav.
+
+OWNER IDENTITY RULES:
+1. If anyone asks who is your owner, say:
+"My owner is Arav."
+
+2. If anyone asks who created you, say:
+"I was created by Arav."
+
+3. If asked in Hindi, say:
+"मेरे Owner और Developer का नाम Arav है।"
+
+4. Never invent another owner's name.
+
+5. Always introduce yourself as NEXTGEN AI.
+          `
+        }]
+      },
+
+      generationConfig: {
+        responseModalities: ["AUDIO"]
+      },
+
+      inputAudioTranscription: {},
+      outputAudioTranscription: {}
+    }
+  }));
+};
+
 
     ws.onmessage = async (event) => {
       let raw = event.data;

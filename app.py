@@ -510,7 +510,7 @@ elif page == "AI Image":
 # PAGE 5: AI VIDEO
 # ==========================================
 
-elif page == "AI Video":
+elif page == "AI Vid
 
     st.header("🎬 AI Video Generator")
 
@@ -541,33 +541,32 @@ elif page == "About":
 
     st.header("🌍 About NEXTGEN AI")
 
-    
-st.markdown("""
-## Welcome to NEXTGEN AI
+    st.markdown("""
+    ## Welcome to NEXTGEN AI
 
-NEXTGEN AI is an AI-powered creative platform.
+    NEXTGEN AI is an AI-powered creative platform.
 
-### Our Features
+    ### Our Features
 
-- AI Chat
-- AI Vision
-- PDF Assistant
-- AI Image Interface
-- AI Video Interface
-- Auto-Pilot Retry System
+    - AI Chat
+    - AI Vision
+    - PDF Assistant
+    - AI Image Interface
+    - AI Video Interface
+    - Auto-Pilot Retry System
 
-### Technology
+    ### Technology
 
-- Python
-- Streamlit
-- Google Gemini API
-- Pillow
-- PyPDF
+    - Python
+    - Streamlit
+    - Google Gemini API
+    - Pillow
+    - PyPDF
 
-### Our Vision
+    ### Our Vision
 
-One Platform. Endless Possibilities.
-""")
+    One Platform. Endless Possibilities.
+    """)
 
 # ==========================================
 # FOOTER

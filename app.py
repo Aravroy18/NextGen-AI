@@ -568,7 +568,6 @@ elif page == "About":
     One Platform. Endless Possibilities.
     """)
 
-
 # ==========================================
 # FOOTER
 # ==========================================
@@ -577,8 +576,10 @@ st.markdown("---")
 
 st.markdown("""
 <div class="footer">
-    st.markdown("NEXTGEN AI © 2026")
+    NEXTGEN AI © 2026
     <br>
     Powered by Artificial Intelligence
 </div>
 """, unsafe_allow_html=True)
+
+

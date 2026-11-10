@@ -577,7 +577,7 @@ st.markdown("---")
 
 st.markdown("""
 <div class="footer">
-    NEXTGEN AI © 2026
+    st.markdown("NEXTGEN AI © 2026")
     <br>
     Powered by Artificial Intelligence
 </div>

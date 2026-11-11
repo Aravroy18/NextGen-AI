@@ -693,10 +693,9 @@ elif page == "AI Chat":
                 )
 
         # AI RESPONSE
+                # AI RESPONSE
         with st.chat_message("assistant"):
-
             try:
-
                 recent_messages = (
                     st.session_state.messages[-10:]
                 )
@@ -706,7 +705,7 @@ elif page == "AI Chat":
                     for m in recent_messages
                 )
 
-                                if uploaded_image:
+                if uploaded_image:
                     contents = [
                         history,
                         uploaded_image
@@ -729,6 +728,10 @@ elif page == "AI Chat":
             "role": "assistant",
             "content": answer
         })
+
+                            
+
+            
 
 
                 

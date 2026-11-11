@@ -513,7 +513,9 @@ elif page == "AI Chat":
                 "__LIVE_TOKEN__",
                 st.session_state.live_token
             )
-
+            if "__LIVE_TOKEN__" in voice_html:
+    st.error("Live token replace नहीं हुआ। Fresh token generate करें।")
+    st.stop()
             components.html(
                 voice_html,
                 height=600,

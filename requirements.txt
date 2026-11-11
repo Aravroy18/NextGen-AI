@@ -4,3 +4,4 @@ python-dotenv
 pillow
 pypdf
 streamlit-webrtc
+streamlit-mic-recorder

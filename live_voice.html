@@ -222,6 +222,7 @@ async function startCall() {
   stopCall();
   status.textContent = "ERROR: " + message;
 }
+}
 function stopCall() {
   active = false;
 
@@ -250,11 +251,11 @@ function stopCall() {
 }
 
 document.getElementById("start").onclick = () => {
-  status.textContent = "START BUTTON CLICKED";
+  startCall();
 };
 
 document.getElementById("stop").onclick = () => {
-  status.textContent = "END BUTTON CLICKED";
+  stopCall();
 };
 </script>
 </body>

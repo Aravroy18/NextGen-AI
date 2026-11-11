@@ -521,7 +521,7 @@ elif page == "AI Chat":
     # LIVE VOICE CALL
     st.markdown("---")
 
-    if st.button("📞 Start Live Call", key="start_live_call"):
+    if st.button("📞 Start Live Call"):
         st.session_state.live_token = None
 
         try:

@@ -752,56 +752,19 @@ answer = generate_answer(
 # ==========================================
 # PAGE 2: AI VISION
 # ==========================================
+if st.button("🔍 Analyze Image"):
 
-elif page == "AI Vision":
+    contents = [
+        question or "Describe this image in detail.",
+        image
+    ]
 
-    st.header("👁️ AI Vision")
+    with st.spinner("AI is analyzing..."):
+        answer = generate_answer(contents)
 
-    st.write(
-        "Upload an image and let AI understand it."
-    )
+    st.success("Analysis complete")
+    st.markdown(answer)
 
-    uploaded_image = st.file_uploader(
-        "Upload your image",
-        type=["png", "jpg", "jpeg", "webp"]
-    )
-
-    question = st.text_input(
-        "What would you like to know about this image?",
-        key="vision_question"
-    )
-
-    if uploaded_image:
-
-        try:
-
-            image = Image.open(
-                io.BytesIO(uploaded_image.getvalue())
-            )
-
-            st.image(
-                image,
-                caption="Uploaded Image",
-                use_container_width=True
-            )
-
-            if st.button("🔍 Analyze Image"):
-
-                contents = [
-                    question or "Describe this image in detail.",
-                    image
-                ]
-
-                with st.spinner("AI is analyzing..."):
-
-                    answer = generate_answer(contents)
-
-                st.success("Analysis complete")
-                st.markdown(answer)
-
-        except Exception as e:
-
-            st.error(f"Vision Error: {e}")
 
 
 # ==========================================

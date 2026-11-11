@@ -228,10 +228,10 @@ st.sidebar.markdown("# 🚀 NEXTGEN AI")
 st.sidebar.caption("YOUR CREATIVE UNIVERSE")
 
 st.sidebar.markdown("---")
-
 page = st.sidebar.radio(
     "NAVIGATION",
     [
+        "🏠 Dashboard",
         "AI Chat",
         "AI Vision",
         "PDF Assistant",
@@ -240,6 +240,7 @@ page = st.sidebar.radio(
         "About"
     ]
 )
+
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### SYSTEM STATUS")
@@ -274,12 +275,136 @@ st.subheader("One Platform. Endless Possibilities.")
 st.write("Your intelligent AI universe.")
 
 
+# ==========================================
+# PAGE 0: DASHBOARD
+# ==========================================
 
+if page == "🏠 Dashboard":
+
+    st.markdown("""
+    <div style="
+        background:linear-gradient(120deg,#090920,#25105c,#101f52);
+        padding:40px;
+        border-radius:24px;
+        border:1px solid #7857ff;
+        box-shadow:0 0 30px #5125a855;
+    ">
+        <h1 style="color:white;font-size:42px;">
+            🚀 NEXTGEN AI
+        </h1>
+        <h2 style="color:#c4b5fd;">
+            Welcome to Your AI Universe
+        </h2>
+        <p style="color:#e2e8f0;font-size:18px;">
+            One Platform. Endless Possibilities.
+        </p>
+        <p style="color:#a5b4fc;">
+            Discover the future of Artificial Intelligence.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("")
+
+    st.subheader("⚡ SYSTEM OVERVIEW")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("AI Messages", len(st.session_state.messages))
+
+    with col2:
+        st.metric("AI Tools", "5")
+
+    with col3:
+        st.metric("AI Engine", "Gemini")
+
+    with col4:
+        st.metric("Platform", "ONLINE" if API_KEY else "OFFLINE")
+
+    st.markdown("---")
+
+    st.subheader("🌌 EXPLORE YOUR AI UNIVERSE")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#29205b);
+        padding:25px;border-radius:18px;border:1px solid #7657ff;">
+        <h2>💬 AI CHAT</h2>
+        <p>Meet your intelligent AI assistant.</p>
+        <p style="color:#a78bfa;">Ask • Learn • Create</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c2:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#173b60);
+        padding:25px;border-radius:18px;border:1px solid #398bff;">
+        <h2>👁️ AI VISION</h2>
+        <p>Let AI understand your images.</p>
+        <p style="color:#93c5fd;">Upload • Analyze • Discover</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#44205b);
+        padding:25px;border-radius:18px;border:1px solid #c084fc;">
+        <h2>📄 PDF AI</h2>
+        <p>Explore and understand PDF documents.</p>
+        <p style="color:#d8b4fe;">Read • Ask • Understand</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    c4, c5, c6 = st.columns(3)
+
+    with c4:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#553018);
+        padding:25px;border-radius:18px;border:1px solid #fb923c;">
+        <h2>🎨 AI IMAGE</h2>
+        <p>Transform imagination into images.</p>
+        <p style="color:#fdba74;">Imagine • Generate</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c5:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#173e46);
+        padding:25px;border-radius:18px;border:1px solid #2dd4bf;">
+        <h2>🎬 AI VIDEO</h2>
+        <p>Explore AI-powered video creation.</p>
+        <p style="color:#5eead4;">Create • Visualize</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c6:
+        st.markdown("""
+        <div style="background:linear-gradient(145deg,#171735,#512044);
+        padding:25px;border-radius:18px;border:1px solid #f472b6;">
+        <h2>🎙️ LIVE VOICE</h2>
+        <p>Experience real-time AI conversations.</p>
+        <p style="color:#f9a8d4;">Speak • Interact</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    st.markdown("""
+    <div style="text-align:center;padding:20px;">
+        <h2 style="color:#a78bfa;">THE FUTURE STARTS HERE</h2>
+        <p>Powered by Artificial Intelligence | Created by Arav</p>
+    </div>
+    """, unsafe_allow_html=True)
 # ==========================================
 # PAGE 1: AI CHAT
 # ==========================================
 
-if page == "AI Chat":
+elif page == "AI Chat":
 
     st.header("💬 AI Chat Assistant")
 

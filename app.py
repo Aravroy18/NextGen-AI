@@ -219,7 +219,61 @@ def generate_answer(contents):
     st.session_state.last_provider = "Gemini Direct"
 
     return response.text
+# ==========================================
+# TEXT TO SPEECH ENGINE
+# ==========================================
 
+def show_voice_player(text, auto_play=True):
+
+    safe_text = json.dumps(text, ensure_ascii=False)
+
+    auto = "true" if auto_play else "false"
+
+    voice_html = f"""
+    <div style="
+        background:#15152e;
+        padding:14px;
+        border-radius:14px;
+        border:1px solid #454078;
+        display:flex;
+        gap:8px;
+        flex-wrap:wrap;
+    ">
+
+      <button onclick="speakText()">▶ Play</button>
+      <button onclick="window.speechSynthesis.pause()">⏸ Pause</button>
+      <button onclick="window.speechSynthesis.resume()">▶ Resume</button>
+      <button onclick="window.speechSynthesis.cancel()">⏹ Stop</button>
+
+    </div>
+
+    <script>
+    const textToSpeak = {safe_text};
+    const autoPlay = {auto};
+
+    function speakText() {{
+        window.speechSynthesis.cancel();
+
+        const speech = new SpeechSynthesisUtterance(textToSpeak);
+
+        speech.lang = /[\\u0900-\\u097F]/.test(textToSpeak)
+            ? "hi-IN" : "en-IN";
+
+        speech.rate = 1;
+        speech.pitch = 1;
+
+        window.speechSynthesis.speak(speech);
+    }}
+
+    window.onload = function() {{
+        if (autoPlay) {{
+            speakText();
+        }}
+    }};
+    </script>
+    """
+
+    components.html(voice_html, height=85)
 
 # ==========================================
 # SIDEBAR

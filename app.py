@@ -480,22 +480,30 @@ elif page == "AI Chat":
     # LIVE VOICE CALL
     # --------------------------------------
 
+        # Live Voice
     st.markdown("---")
 
     if st.button("📞 Start Live Call"):
+
+        st.session_state.live_token = None
 
         try:
             if not API_KEY:
                 st.error("GEMINI_API_KEY missing")
 
             else:
-                with st.spinner("Connecting Live Voice..."):
+                with st.spinner("Generating fresh Live Token..."):
+                    new_token = create_live_token(API_KEY)
 
-                    st.session_state.live_token = (
-                        create_live_token(API_KEY)
-                    )
+                if not new_token:
+                    st.error("Token generate नहीं हुआ।")
+
+                else:
+                    st.session_state.live_token = new_token
+                    st.success("Fresh Live Token generated!")
 
         except Exception as e:
+            st.session_state.live_token = None
             st.error(f"Live API Error: {e}")
 
     if st.session_state.live_token:
@@ -506,30 +514,31 @@ elif page == "AI Chat":
                 "r",
                 encoding="utf-8"
             ) as f:
-
                 voice_html = f.read()
-            voice_html = voice_html.replace(
-                "__LIVE_TOKEN__",
-                st.session_state.live_token
-            )
 
-            if "__LIVE_TOKEN__" in voice_html:
-                st.error("Live token replace नहीं हुआ। Fresh token generate करें।")
-                st.stop()
+            if "__LIVE_TOKEN__" not in voice_html:
+                st.error(
+                    "HTML में __LIVE_TOKEN__ placeholder नहीं मिला।"
+                )
 
-            components.html(
-                voice_html,
-                height=600,
-                scrolling=True
-            )
-            
+            else:
+                voice_html = voice_html.replace(
+                    "__LIVE_TOKEN__",
+                    st.session_state.live_token
+                )
+
+                if "__LIVE_TOKEN__" in voice_html:
+                    st.error("Token HTML में replace नहीं हुआ।")
+
+                else:
+                    components.html(
+                        voice_html,
+                        height=600,
+                        scrolling=True
+                    )
 
         except Exception as e:
-
-            st.error(
-                f"Voice Interface Error: {e}"
-            )
-
+            st.error(f"Voice Interface Error: {e}")
     # --------------------------------------
     # MICROPHONE
     # --------------------------------------

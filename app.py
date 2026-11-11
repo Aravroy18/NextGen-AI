@@ -412,26 +412,28 @@ elif page == "AI Chat":
         "Ask questions, learn, create and explore."
     )
 
-    # Chat history
+    # --------------------------------------
+    # CHAT HISTORY
+    # --------------------------------------
 
     for msg in st.session_state.messages:
 
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Live Voice
+    # --------------------------------------
+    # LIVE VOICE CALL
+    # --------------------------------------
 
     st.markdown("---")
 
     if st.button("📞 Start Live Call"):
 
         try:
-
             if not API_KEY:
                 st.error("GEMINI_API_KEY missing")
 
             else:
-
                 with st.spinner("Connecting Live Voice..."):
 
                     st.session_state.live_token = (
@@ -439,13 +441,11 @@ elif page == "AI Chat":
                     )
 
         except Exception as e:
-
             st.error(f"Live API Error: {e}")
 
     if st.session_state.live_token:
 
         try:
-
             with open(
                 "live_voice.html",
                 "r",
@@ -471,22 +471,86 @@ elif page == "AI Chat":
                 f"Voice Interface Error: {e}"
             )
 
-    # Text Chat
+    # --------------------------------------
+    # MICROPHONE
+    # --------------------------------------
 
-    prompt = st.chat_input(
-        "Message NEXTGEN AI..."
+    st.markdown("---")
+    st.subheader("🎤 Voice Input")
+
+    voice_text = speech_to_text(
+        language="hi-IN",
+        start_prompt="🎤 Start Speaking",
+        stop_prompt="⏹️ Stop Recording",
+        just_once=True,
+        key="nextgen_chat_mic"
     )
 
-    if prompt:
+    # --------------------------------------
+    # CHAT INPUT + GALLERY
+    # --------------------------------------
+
+    chat_value = st.chat_input(
+        "Message NEXTGEN AI...",
+        accept_file=True,
+        file_type=["png", "jpg", "jpeg", "webp"]
+    )
+
+    prompt = ""
+    uploaded_image = None
+
+    # Text and gallery input
+    if chat_value:
+
+        prompt = chat_value.text or ""
+
+        if chat_value.files:
+
+            try:
+                uploaded_image = Image.open(
+                    io.BytesIO(
+                        chat_value.files[0].getvalue()
+                    )
+                ).convert("RGB")
+
+            except Exception as e:
+                st.error(f"Image Upload Error: {e}")
+
+    # Microphone input
+    if voice_text and not prompt:
+        prompt = voice_text
+
+    # --------------------------------------
+    # SEND MESSAGE TO AI
+    # --------------------------------------
+
+    if prompt or uploaded_image:
+
+        if not prompt:
+            prompt = "Please analyze this image."
+
+        user_message = prompt
+
+        if uploaded_image:
+            user_message += " [Image attached]"
 
         st.session_state.messages.append({
             "role": "user",
-            "content": prompt
+            "content": user_message
         })
 
         with st.chat_message("user"):
+
             st.markdown(prompt)
 
+            if uploaded_image:
+                st.image(
+                    uploaded_image,
+                    caption="Attached Image",
+                    width=300
+                )
+
+        # AI RESPONSE
         with st.chat_message("assistant"):
 
             try:
@@ -500,11 +564,21 @@ elif page == "AI Chat":
                     for m in recent_messages
                 )
 
+                if uploaded_image:
+
+                    contents = [
+                        history,
+                        uploaded_image
+                    ]
+
+                else:
+                    contents = history
+
                 with st.spinner(
                     "NEXTGEN AI is thinking..."
                 ):
 
-                    answer = generate_answer(history)
+                    answer = generate_answer(contents)
 
                 st.markdown(answer)
 
@@ -517,6 +591,15 @@ elif page == "AI Chat":
             "role": "assistant",
             "content": answer
         })
+
+    
+
+
+        
+
+    
+
+
 
 
 # ==========================================

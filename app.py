@@ -518,37 +518,7 @@ elif page == "AI Chat":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # LIVE VOICE CALL
-    st.markdown("---")
-
-    if st.button("📞 Start Live Call"):
-        st.session_state.live_token = None
-
-        try:
-            if not API_KEY:
-                st.error("GEMINI_API_KEY missing")
-            else:
-                with st.spinner("Generating fresh Live Token..."):
-                    new_token = create_live_token(API_KEY)
-
-                if new_token:
-                    st.session_state.live_token = new_token
-                    st.success("Fresh Live Token generated!")
-                else:
-                    st.error("Token generate नहीं हुआ।")
-
-        except Exception as e:
-            st.session_state.live_token = None
-            st.error(f"Live API Error: {e}")
-
-    # --------------------------------------
-    # CHAT HISTORY
-    # --------------------------------------
-
-    for msg in st.session_state.messages:
-
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        
 
     # --------------------------------------
     # LIVE VOICE CALL

@@ -5,12 +5,11 @@ from google.genai import types
 
 LIVE_MODEL = "gemini-3.8-live"
 
-
 def create_live_token(api_key):
     client = genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
-            api_version="v1alpha"
+            api_version="v1beta"
         )
     )
 

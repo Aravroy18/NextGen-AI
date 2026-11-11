@@ -11,6 +11,7 @@ from google.genai import types
 from PIL import Image
 from pypdf import PdfReader
 from voice_call import create_live_token
+from streamlit_mic_recorder import speech_to_text
 
 
 # ==========================================

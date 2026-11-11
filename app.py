@@ -706,31 +706,22 @@ elif page == "AI Chat":
                     for m in recent_messages
                 )
 
-                if uploaded_image:
-
+                                if uploaded_image:
                     contents = [
                         history,
                         uploaded_image
                     ]
-
                 else:
                     contents = history
 
                 with st.spinner(
                     "NEXTGEN AI is thinking..."
                 ):
-
-                 
-answer = generate_answer(
-    contents,
-    use_web=web_search_enabled
-)
-
+                    answer = generate_answer(contents)
 
                 st.markdown(answer)
 
             except Exception as e:
-
                 answer = f"AI Error: {str(e)}"
                 st.error(answer)
 
@@ -738,6 +729,9 @@ answer = generate_answer(
             "role": "assistant",
             "content": answer
         })
+
+
+                
 
 # ==========================================
 # PAGE 2: AI VISION

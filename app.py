@@ -508,19 +508,21 @@ elif page == "AI Chat":
             ) as f:
 
                 voice_html = f.read()
-
             voice_html = voice_html.replace(
                 "__LIVE_TOKEN__",
                 st.session_state.live_token
             )
+
             if "__LIVE_TOKEN__" in voice_html:
-    st.error("Live token replace नहीं हुआ। Fresh token generate करें।")
-    st.stop()
+                st.error("Live token replace नहीं हुआ। Fresh token generate करें।")
+                st.stop()
+
             components.html(
                 voice_html,
                 height=600,
                 scrolling=True
             )
+            
 
         except Exception as e:
 

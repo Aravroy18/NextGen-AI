@@ -758,9 +758,10 @@ elif page == "AI Vision":
     if uploaded_image:
 
         try:
+
             image = Image.open(
                 io.BytesIO(uploaded_image.getvalue())
-            )
+            ).convert("RGB")
 
             st.image(
                 image,
@@ -776,14 +777,15 @@ elif page == "AI Vision":
                 ]
 
                 with st.spinner("AI is analyzing..."):
+
                     answer = generate_answer(contents)
 
                 st.success("Analysis complete")
                 st.markdown(answer)
 
         except Exception as e:
-            st.error(f"Vision Error: {e}")
 
+            st.error(f"Vision Error: {e}")
 
 
 # ==========================================

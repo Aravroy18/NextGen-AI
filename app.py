@@ -197,28 +197,74 @@ def get_client():
 # AI ENGINE
 # ==========================================
 
-def generate_answer(contents):
+def generate_answer(contents, use_web=False):
 
     client = get_client()
+
+    config = {
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "max_output_tokens": 2048,
+        "temperature": 0.7
+    }
+
+    # Enable Google Search grounding
+    if use_web:
+        config["tools"] = [
+            types.Tool(
+                google_search=types.GoogleSearch()
+            )
+        ]
 
     response = client.models.generate_content(
         model=MODEL,
         contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            max_output_tokens=1024,
-            temperature=0.7
-        )
+        config=types.GenerateContentConfig(**config)
     )
 
     if not response.text:
-        raise ValueError(
-            "AI ने खाली जवाब दिया। दोबारा कोशिश करें।"
+        raise ValueError("AI ने खाली जवाब दिया।")
+
+    answer = response.text
+
+    # Extract grounded web sources
+    if use_web and response.candidates:
+        metadata = getattr(
+            response.candidates[0],
+            "grounding_metadata",
+            None
         )
 
-    st.session_state.last_provider = "Gemini Direct"
+        chunks = getattr(
+            metadata,
+            "grounding_chunks",
+            []
+        ) or []
 
-    return response.text
+        sources = []
+        seen = set()
+
+        for chunk in chunks:
+            web_source = getattr(chunk, "web", None)
+
+            if web_source:
+                uri = getattr(web_source, "uri", None)
+                title = getattr(web_source, "title", None) or uri
+
+                if uri and uri not in seen:
+                    seen.add(uri)
+                    sources.append(f"- [{title}]({uri})")
+
+        if sources:
+            answer += "\n\n**Sources:**\n" + "\n".join(sources)
+
+    st.session_state.last_provider = (
+        "Gemini + Google Search" if use_web
+        else "Gemini Direct"
+    )
+
+    return answer
+
+
 # ==========================================
 # TEXT TO SPEECH ENGINE
 # ==========================================
@@ -466,6 +512,12 @@ elif page == "AI Chat":
     st.caption(
         "Ask questions, learn, create and explore."
     )
+    
+web_search_enabled = st.toggle(
+    "🌐 Live Web Search",
+    value=True,
+    help="Google Search से ताज़ा जानकारी प्राप्त करें।"
+)
 
     # --------------------------------------
     # CHAT HISTORY
@@ -646,7 +698,12 @@ elif page == "AI Chat":
                     "NEXTGEN AI is thinking..."
                 ):
 
-                    answer = generate_answer(contents)
+                 
+answer = generate_answer(
+    contents,
+    use_web=web_search_enabled
+)
+
 
                 st.markdown(answer)
 

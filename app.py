@@ -1,657 +1,800 @@
 
 import os
 import io
+import json
+import sqlite3
+import html
 import streamlit as st
-from PIL import Image
+import streamlit.components.v1 as components
+
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from PIL import Image
 from pypdf import PdfReader
 
-# ==========================================
-# NEXTGEN AI - COMPLETE APPLICATION
-# ==========================================
+from auto_pilot import generate_with_autopilot
+
+# =========================================
+# NEXTGEN AI
+# ChatGPT-style interface
+# =========================================
+
+load_dotenv()
+
+APP_NAME = "NEXTGEN AI"
+MODEL = "gemini-3.8-flash"
+DB_FILE = "nextgen_history.db"
 
 st.set_page_config(
     page_title="NEXTGEN AI",
-    page_icon="✨",
+    page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# IMPORTANT: UPDATED GEMINI MODEL
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+API_KEY = os.getenv("GEMINI_API_KEY")
 
-# ==========================================
-# WHITE PREMIUM DESIGN
-# ==========================================
+# =========================================
+# DATABASE
+# =========================================
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            messages TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_chat(title, messages, chat_id=None):
+    conn = sqlite3.connect(DB_FILE)
+    data = json.dumps(messages, ensure_ascii=False)
+
+    if chat_id:
+        conn.execute(
+            "UPDATE chats SET title=?, messages=? WHERE id=?",
+            (title, data, chat_id)
+        )
+    else:
+        cur = conn.execute(
+            "INSERT INTO chats (title, messages) VALUES (?, ?)",
+            (title, data)
+        )
+        chat_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+    return chat_id
+
+def get_chats():
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT id, title, messages FROM chats ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    return rows
+
+init_db()
+
+# =========================================
+# SESSION STATE
+# =========================================
+
+defaults = {
+    "messages": [],
+    "chat_id": None,
+    "client": None,
+    "voice_enabled": True,
+    "last_provider": "Not connected",
+    "pending_files": []
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# =========================================
+# AI ENGINE
+# =========================================
+
+def get_client():
+    if not API_KEY:
+        raise ValueError(
+            "GEMINI_API_KEY नहीं मिली। अपनी .env फाइल चेक करें।"
+        )
+
+    if st.session_state.client is None:
+        st.session_state.client = genai.Client(
+            api_key=API_KEY
+        )
+
+    return st.session_state.client
+
+def ask_ai(contents):
+    client = get_client()
+
+    answer, provider = generate_with_autopilot(
+        client=client,
+        model=MODEL,
+        contents=contents
+    )
+
+    st.session_state.last_provider = provider
+    return answer
+
+# =========================================
+# DESIGN
+# =========================================
 
 st.markdown("""
 <style>
+#MainMenu, footer, header {
+    visibility: hidden;
+}
+
 .stApp {
-    background: #ffffff;
-    color: #171717;
+    background: #212121;
+    color: #f5f5f5;
 }
+
 [data-testid="stSidebar"] {
-    background: #f8fafc;
-    border-right: 1px solid #e5e7eb;
+    background: #171717;
+    border-right: 1px solid #333;
 }
-.block-container {
-    max-width: 1250px;
-    padding-top: 2rem;
+
+[data-testid="stSidebar"] * {
+    color: #eeeeee !important;
 }
-.hero {
-    padding: 30px;
-    border: 1px solid #e5e7eb;
-    border-radius: 20px;
-    background: linear-gradient(135deg,#ffffff,#eef2ff);
+
+h1, h2, h3 {
+    color: #f5f5f5;
 }
-.feature-card {
-    background: white;
-    border: 1px solid #e5e7eb;
+
+.stChatMessage {
     border-radius: 16px;
-    padding: 20px;
-    margin-bottom: 12px;
 }
+
+[data-testid="stChatMessage"] {
+    background: transparent;
+    border: none;
+}
+
+.stChatInput textarea {
+    background: #303030 !important;
+    color: white !important;
+}
+
 .stButton button {
     border-radius: 12px;
-    min-height: 42px;
+    border: 1px solid #444;
+    background: #303030;
+    color: white;
 }
+
+.stButton button:hover {
+    border-color: #999;
+    color: white;
+}
+
+.hero {
+    text-align: center;
+    padding: 45px 10px 25px;
+}
+
+.hero h1 {
+    font-size: 36px;
+    font-weight: 700;
+}
+
+.hero p {
+    color: #aaa;
+    font-size: 15px;
+}
+
+.small-status {
+    color: #aaa;
+    font-size: 12px;
+}
+
+div[data-testid="stFileUploader"] {
+    background: #292929;
+    border-radius: 12px;
+    padding: 8px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-
-# ==========================================
-# GEMINI API CONNECTION
-# ==========================================
-
-def get_api_key():
-    try:
-        key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        key = ""
-
-    return key or os.getenv("GEMINI_API_KEY", "")
-
-
-@st.cache_resource
-def get_client(api_key):
-    return genai.Client(api_key=api_key)
-
-
-def ask_model(prompt, image=None):
-
-    api_key = get_api_key()
-
-    if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY नहीं मिली। "
-            "Streamlit Secrets में API key सेट करो।"
-        )
-
-    client = get_client(api_key)
-
-    contents = [prompt] if image is None else [prompt, image]
-
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            temperature=0.7,
-            max_output_tokens=2048
-        )
-    )
-
-    answer = response.text
-
-    if not answer:
-        raise RuntimeError("AI से कोई जवाब नहीं मिला।")
-
-    return answer
-
-
-def show_error(error):
-    st.error(str(error))
-
-
-# ==========================================
+# =========================================
 # SIDEBAR
-# ==========================================
+# =========================================
 
 with st.sidebar:
 
-    st.markdown("# ✨ NEXTGEN AI")
+    st.markdown("# 🚀 NEXTGEN AI")
     st.caption("One Platform. Endless Possibilities.")
 
-    st.divider()
+    st.markdown("---")
+
+    if st.button("＋ New Chat", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.chat_id = None
+        st.rerun()
 
     page = st.radio(
         "WORKSPACE",
         [
-            "Home",
             "AI Chat",
             "AI Vision",
             "PDF Assistant",
-            "AI Image",
-            "AI Video",
-            "Study Assistant",
-            "Text Tools",
-            "About"
-        ]
+            "Coding School",
+            "Coding Assistant",
+            "Website Builder",
+            "Image Studio",
+            "Video Studio",
+            "Settings"
+        ],
+        label_visibility="visible"
     )
 
-    st.divider()
+    st.markdown("---")
+    st.markdown("### Recent Chats")
 
-    st.caption("AI MODEL")
-    st.code(MODEL)
+    for chat in get_chats()[:12]:
+        chat_id, title, messages_json = chat
 
-    if get_api_key():
-        st.success("API Key Configured")
+        if st.button(
+            title[:30] if title else "New Chat",
+            key=f"chat_{chat_id}",
+            use_container_width=True
+        ):
+            st.session_state.chat_id = chat_id
+            st.session_state.messages = json.loads(messages_json)
+            st.session_state.page = "AI Chat"
+            st.rerun()
+
+    st.markdown("---")
+
+    if API_KEY:
+        st.success("AI Engine: Connected")
     else:
-        st.warning("API Key Missing")
+        st.error("API Key Missing")
 
+    st.caption(
+        f"Last AI Provider: {st.session_state.last_provider}"
+    )
 
-# ==========================================
-# HOME DASHBOARD
-# ==========================================
+# =========================================
+# CHAT PAGE
+# =========================================
 
-if page == "Home":
+if page == "AI Chat":
 
     st.markdown("""
     <div class="hero">
-        <h1 style="color:#171717">
-            Welcome to NEXTGEN AI ✨
-        </h1>
-        <p style="color:#64748b;font-size:18px">
-            Your intelligent AI workspace.
-            Learn, create and explore with AI.
-        </p>
+        <h1>🚀 NEXTGEN AI</h1>
+        <p>What can I help you with today?</p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.write("")
-
-    st.subheader("Explore Your Workspace")
-
-    features = [
-        ("💬", "AI Chat", "Ask anything."),
-        ("👁️", "AI Vision", "Understand images."),
-        ("📄", "PDF Assistant", "Read and analyse PDFs."),
-        ("🎨", "AI Image", "Create image prompts."),
-        ("🎬", "AI Video", "Create video prompts."),
-        ("📚", "Study Assistant", "Learn smarter."),
-        ("✍️", "Text Tools", "Improve your writing."),
-        ("ℹ️", "About", "About NEXTGEN AI.")
-    ]
-
-    cols = st.columns(4)
-
-    for i, (emoji, title, desc) in enumerate(features):
-
-        with cols[i % 4]:
-
-            st.markdown(
-                f"""
-                <div class="feature-card">
-                    <div style="font-size:28px">{emoji}</div>
-                    <h4 style="color:#171717">{title}</h4>
-                    <p style="color:#64748b">{desc}</p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-# ==========================================
-# AI CHAT
-# ==========================================
-
-elif page == "AI Chat":
-
-    st.title("💬 AI Chat")
-    st.caption("Chat with NEXTGEN AI.")
-
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
-
-    col1, col2 = st.columns([5, 1])
-
-    with col2:
-
-        if st.button("Clear Chat"):
-            st.session_state.chat_messages = []
-            st.rerun()
-
-    for msg in st.session_state.chat_messages:
-
+    # Display conversation
+    for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    prompt = st.chat_input("Message NEXTGEN AI...")
+            if msg["role"] == "assistant":
+                safe_text = json.dumps(msg["content"])
 
-    if prompt:
+                components.html(
+                    f"""
+                    <button onclick='
+                    const text = {safe_text};
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = "hi-IN";
+                    speechSynthesis.cancel();
+                    speechSynthesis.speak(utterance);
+                    ' style="
+                    background:#303030;
+                    color:white;
+                    border:1px solid #555;
+                    padding:7px 13px;
+                    border-radius:10px;
+                    cursor:pointer;">
+                    🔊 Listen
+                    </button>
+                    """,
+                    height=45
+                )
 
-        st.session_state.chat_messages.append({
+    # Attachments
+    with st.expander("＋ Attach files or images"):
+        uploaded_files = st.file_uploader(
+            "Choose files",
+            type=[
+                "png", "jpg", "jpeg", "webp",
+                "pdf", "txt", "py", "js",
+                "html", "css", "csv"
+            ],
+            accept_multiple_files=True
+        )
+
+        if uploaded_files:
+            st.write(
+                f"{len(uploaded_files)} file(s) attached."
+            )
+
+    # Microphone
+    audio = None
+    with st.expander("🎙️ Talk to NEXTGEN AI"):
+        try:
+            audio = st.audio_input("Record your question")
+        except Exception:
+            st.info(
+                "Audio input आपके Streamlit version में उपलब्ध नहीं है। "
+                "अपडेट करके फिर कोशिश करें।"
+            )
+
+    prompt = st.chat_input(
+        "Message NEXTGEN AI..."
+    )
+
+    if prompt or audio:
+
+        if prompt:
+            user_text = prompt
+        else:
+            user_text = "Please listen to this audio and answer the spoken question."
+
+        st.session_state.messages.append({
             "role": "user",
-            "content": prompt
+            "content": user_text
         })
 
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(user_text)
+
+        contents = [
+            "You are NEXTGEN AI, a helpful and intelligent assistant. "
+            "Answer naturally in the user's language. "
+            "Explain clearly and do not invent facts.\n\n"
+        ]
+
+        for msg in st.session_state.messages[-12:]:
+            contents.append(
+                f'{msg["role"].upper()}: {msg["content"]}'
+            )
+
+        for uploaded in uploaded_files or []:
+            raw = uploaded.getvalue()
+            mime = uploaded.type or "application/octet-stream"
+
+            if mime.startswith("image/"):
+                contents.append(
+                    types.Part.from_bytes(
+                        data=raw,
+                        mime_type=mime
+                    )
+                )
+
+            elif mime == "application/pdf":
+                try:
+                    reader = PdfReader(io.BytesIO(raw))
+                    pdf_text = "\n".join(
+                        p.extract_text() or ""
+                        for p in reader.pages
+                    )
+                    contents.append(
+                        f"Attached PDF ({uploaded.name}):\n"
+                        + pdf_text[:20000]
+                    )
+                except Exception:
+                    contents.append(
+                        f"Could not read PDF: {uploaded.name}"
+                    )
+
+            elif mime.startswith("text/") or uploaded.name.endswith(
+                (".py", ".js", ".html", ".css", ".csv")
+            ):
+                contents.append(
+                    f"Attached file {uploaded.name}:\n"
+                    + raw.decode("utf-8", errors="replace")[:15000]
+                )
+
+        if audio is not None:
+            contents.append(
+                types.Part.from_bytes(
+                    data=audio.getvalue(),
+                    mime_type=audio.type or "audio/wav"
+                )
+            )
+            contents.append(
+                "Understand the audio, transcribe the user's question "
+                "if needed, and answer it."
+            )
 
         with st.chat_message("assistant"):
+            try:
+                with st.spinner("NEXTGEN AI is thinking..."):
+                    answer = ask_ai(contents)
 
-            with st.spinner("NEXTGEN AI is thinking..."):
+                st.markdown(answer)
 
-                try:
+                safe_text = json.dumps(answer)
 
-                    history = st.session_state.chat_messages[-12:]
+                components.html(
+                    f"""
+                    <button onclick='
+                    const text = {safe_text};
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = "hi-IN";
+                    speechSynthesis.cancel();
+                    speechSynthesis.speak(utterance);
+                    ' style="
+                    background:#303030;
+                    color:white;
+                    border:1px solid #555;
+                    padding:7px 13px;
+                    border-radius:10px;
+                    cursor:pointer;">
+                    🔊 Listen to answer
+                    </button>
+                    """,
+                    height=45
+                )
 
-                    conversation = "\n".join(
-                        f'{m["role"]}: {m["content"]}'
-                        for m in history
-                    )
+            except Exception as e:
+                answer = f"AI Error: {e}"
+                st.error(answer)
 
-                    answer = ask_model(
-                        "You are NEXTGEN AI, a helpful, intelligent assistant. "
-                        "Reply in the same language as the user. "
-                        "Give accurate and useful answers. "
-                        "Never invent current information.\n\n"
-                        + conversation
-                    )
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
 
-                    st.markdown(answer)
+        title = (
+            st.session_state.messages[0]["content"][:45]
+            if st.session_state.messages else "New Chat"
+        )
 
-                    st.session_state.chat_messages.append({
-                        "role": "assistant",
-                        "content": answer
-                    })
+        st.session_state.chat_id = save_chat(
+            title,
+            st.session_state.messages,
+            st.session_state.chat_id
+        )
 
-                except Exception as e:
-                    show_error(e)
+        st.rerun()
 
-
-# ==========================================
-# AI VISION
-# ==========================================
+# =========================================
+# VISION
+# =========================================
 
 elif page == "AI Vision":
 
     st.title("👁️ AI Vision")
-    st.write("Upload an image and ask questions about it.")
+    st.write("Upload an image and ask NEXTGEN AI about it.")
 
     image_file = st.file_uploader(
         "Upload Image",
         type=["png", "jpg", "jpeg", "webp"]
     )
 
-    question = st.text_area(
-        "Ask about your image",
-        value="Describe this image in detail."
+    question = st.text_input(
+        "What should I understand from this image?"
     )
 
     if image_file:
+        image = Image.open(image_file)
+        st.image(image, use_container_width=True)
 
-        try:
+        if st.button("Analyze Image"):
+            try:
+                with st.spinner("Analyzing image..."):
+                    answer = ask_ai([
+                        question or "Describe this image.",
+                        image
+                    ])
+                st.markdown(answer)
+            except Exception as e:
+                st.error(str(e))
 
-            image = Image.open(image_file).convert("RGB")
-
-            st.image(
-                image,
-                caption="Uploaded Image",
-                use_container_width=True
-            )
-
-            if st.button("Analyse Image", type="primary"):
-
-                with st.spinner("Analysing image..."):
-
-                    answer = ask_model(question, image)
-
-                    st.markdown("### AI Analysis")
-                    st.write(answer)
-
-        except Exception as e:
-            show_error(e)
-
-
-# ==========================================
+# =========================================
 # PDF ASSISTANT
-# ==========================================
+# =========================================
 
 elif page == "PDF Assistant":
 
     st.title("📄 PDF Assistant")
-    st.write("Upload a PDF and ask questions about it.")
 
-    pdf_file = st.file_uploader(
+    pdf = st.file_uploader(
         "Upload PDF",
         type=["pdf"]
     )
 
-    if pdf_file:
-
+    if pdf:
         try:
-
-            reader = PdfReader(io.BytesIO(pdf_file.getvalue()))
-
-            pdf_text = "\n\n".join(
-                page.extract_text() or ""
-                for page in reader.pages
+            reader = PdfReader(pdf)
+            text = "\n".join(
+                p.extract_text() or ""
+                for p in reader.pages
             )
 
             st.success(
-                f"PDF Loaded: {len(reader.pages)} pages"
+                f"Loaded {len(reader.pages)} pages"
             )
 
-            if not pdf_text.strip():
+            question = st.text_input(
+                "Ask a question about this PDF"
+            )
 
-                st.warning(
-                    "इस PDF में selectable text नहीं मिला। "
-                    "यह scanned PDF हो सकती है।"
-                )
-
-            else:
-
-                question = st.text_area(
-                    "Ask a question about this PDF"
-                )
-
-                if st.button("Ask PDF", type="primary") and question.strip():
-
-                    with st.spinner("Reading PDF..."):
-
-                        answer = ask_model(
-                            "Answer using the following PDF text. "
-                            "If information is missing, say so.\n\n"
-                            + pdf_text[:60000]
-                            + "\n\nQuestion: "
-                            + question
-                        )
-
-                        st.markdown(answer)
+            if st.button("Ask PDF Assistant"):
+                if question.strip():
+                    answer = ask_ai(
+                        "Use only this PDF content. "
+                        "If the answer is missing, say so.\n\n"
+                        + text[:40000]
+                        + "\n\nQuestion: "
+                        + question
+                    )
+                    st.markdown(answer)
 
         except Exception as e:
-            show_error(e)
+            st.error(f"PDF Error: {e}")
 
+# =========================================
+# CODING SCHOOL
+# =========================================
 
-# ==========================================
-# AI IMAGE PROMPT STUDIO
-# ==========================================
+elif page == "Coding School":
 
-elif page == "AI Image":
-
-    st.title("🎨 AI Image Generator")
-    st.caption("Create professional image-generation prompts.")
-
-    st.info(
-        "इस version में image prompt बनता है। "
-        "Actual image generation engine अभी connected नहीं है।"
+    st.title("🎓 NEXTGEN Coding School")
+    st.write(
+        "Learn programming from beginner to advanced level."
     )
 
-    subject = st.text_input(
-        "Describe your image",
-        placeholder="A futuristic city at night..."
+    languages = [
+        "Python", "JavaScript", "HTML",
+        "CSS", "C", "C++", "Java", "SQL"
+    ]
+
+    language = st.selectbox(
+        "Choose a programming language",
+        languages
     )
 
-    style = st.selectbox(
-        "Choose Style",
+    level = st.selectbox(
+        "Choose your level",
+        ["Beginner", "Intermediate", "Advanced"]
+    )
+
+    topic = st.text_input(
+        "What do you want to learn?",
+        placeholder="Example: Variables, Loops, Functions"
+    )
+
+    learning_mode = st.selectbox(
+        "Learning mode",
         [
-            "Cinematic Realistic",
-            "3D Animation",
-            "Anime",
-            "Digital Art",
-            "Photorealistic",
-            "Fantasy"
+            "Detailed Lesson",
+            "Practice Questions",
+            "Quiz",
+            "Mini Project",
+            "Explain My Mistakes"
         ]
     )
 
-    ratio = st.selectbox(
-        "Aspect Ratio",
-        ["9:16", "16:9", "1:1", "4:5"]
-    )
+    if st.button("Start Learning"):
+        if not topic.strip():
+            st.warning("Enter a topic first.")
+        else:
+            instruction = f"""
+You are NEXTGEN Coding School, a patient programming teacher.
 
-    details = st.text_area("Extra Details")
+Teach {language}.
+Student level: {level}.
+Topic: {topic}.
+Mode: {learning_mode}.
 
-    if st.button("Generate Image Prompt", type="primary") and subject.strip():
-
-        with st.spinner("Creating prompt..."):
-
+Rules:
+1. Explain from the correct difficulty level.
+2. Use simple language.
+3. Give examples and code.
+4. Explain each important line.
+5. For quizzes, give questions and wait for answers.
+6. For projects, give requirements and steps.
+7. Never pretend code was executed if it was not.
+"""
             try:
-
-                result = ask_model(
-                    f"Create an extremely detailed image generation prompt. "
-                    f"Subject: {subject}. Style: {style}. "
-                    f"Aspect ratio: {ratio}. Extra details: {details}. "
-                    "Include lighting, composition, camera details, "
-                    "quality and a negative prompt."
-                )
-
-                st.markdown("### Your Image Prompt")
-                st.write(result)
-
-                st.download_button(
-                    "Download Prompt",
-                    result,
-                    file_name="nextgen_image_prompt.txt"
-                )
-
+                with st.spinner("Preparing your lesson..."):
+                    answer = ask_ai(instruction)
+                st.markdown(answer)
             except Exception as e:
-                show_error(e)
+                st.error(str(e))
 
+# =========================================
+# CODING ASSISTANT
+# =========================================
 
-# ==========================================
-# AI VIDEO PROMPT STUDIO
-# ==========================================
+elif page == "Coding Assistant":
 
-elif page == "AI Video":
+    st.title("💻 Coding Assistant")
 
-    st.title("🎬 AI Video Generator")
-
-    st.info(
-        "यह version video prompts बनाता है। "
-        "Actual MP4 generation engine अभी connected नहीं है।"
+    language = st.selectbox(
+        "Programming language",
+        [
+            "Python", "JavaScript", "HTML",
+            "CSS", "C", "C++", "Java", "SQL"
+        ]
     )
+
+    task = st.text_area(
+        "Describe your coding problem or paste your code"
+    )
+
+    if st.button("Help Me Code"):
+        if task.strip():
+            try:
+                answer = ask_ai(
+                    f"""
+Act as a careful {language} programming assistant.
+Explain the solution, provide corrected code,
+and describe common mistakes.
+
+User request:
+{task}
+"""
+                )
+                st.markdown(answer)
+            except Exception as e:
+                st.error(str(e))
+
+# =========================================
+# WEBSITE BUILDER
+# =========================================
+
+elif page == "Website Builder":
+
+    st.title("🌐 NEXTGEN Website Builder")
+
+    idea = st.text_area(
+        "Describe the website you want to build"
+    )
+
+    if st.button("Generate Website Code"):
+        if idea.strip():
+            try:
+                answer = ask_ai(
+                    "Create a responsive website using HTML, CSS "
+                    "and JavaScript. Return complete code with "
+                    "separate clearly labelled sections.\n\n"
+                    + idea
+                )
+                st.code(answer, language="html")
+            except Exception as e:
+                st.error(str(e))
+
+# =========================================
+# IMAGE STUDIO
+# =========================================
+
+elif page == "Image Studio":
+
+    st.title("🎨 Image Studio")
+
+    prompt = st.text_area(
+        "Describe the image you want to create"
+    )
+
+    if st.button("Create Image Prompt"):
+        if prompt.strip():
+            try:
+                result = ask_ai(
+                    "Create a detailed professional image-generation "
+                    "prompt. Include subject, setting, lighting, "
+                    "composition, camera and style.\n\n"
+                    + prompt
+                )
+                st.text_area(
+                    "Your Image Generation Prompt",
+                    result,
+                    height=220
+                )
+                st.info(
+                    "यह अभी prompt generator है। वास्तविक image "
+                    "rendering के लिए image-generation API जोड़नी होगी।"
+                )
+            except Exception as e:
+                st.error(str(e))
+
+# =========================================
+# VIDEO STUDIO
+# =========================================
+
+elif page == "Video Studio":
+
+    st.title("🎬 Video Studio")
 
     idea = st.text_area(
         "Describe your video idea"
     )
 
     duration = st.selectbox(
-        "Video Duration",
-        ["10 seconds", "20 seconds", "25 seconds", "30 seconds"]
+        "Video duration",
+        ["10 seconds", "20 seconds", "30 seconds", "60 seconds"]
     )
 
-    ratio = st.selectbox(
-        "Video Format",
-        ["9:16 Vertical", "16:9 Landscape", "1:1 Square"]
-    )
-
-    if st.button("Generate Video Prompt", type="primary") and idea.strip():
-
-        with st.spinner("Creating video prompt..."):
-
+    if st.button("Create Video Storyboard"):
+        if idea.strip():
             try:
+                result = ask_ai(
+                    f"""
+Create a professional video storyboard.
+Duration: {duration}.
+Include scenes, visual prompts, camera movements,
+voiceover and background music suggestions.
 
-                result = ask_model(
-                    f"Create a professional AI video generation prompt. "
-                    f"Duration: {duration}. Format: {ratio}. "
-                    f"Concept: {idea}. "
-                    "Describe camera movement, motion, lighting, "
-                    "environment and visual consistency. "
-                    "Keep it as one continuous video."
+Idea:
+{idea}
+"""
                 )
-
-                st.markdown("### Video Generation Prompt")
-                st.write(result)
-
-                st.download_button(
-                    "Download Video Prompt",
-                    result,
-                    file_name="nextgen_video_prompt.txt"
+                st.markdown(result)
+                st.info(
+                    "यह storyboard generator है। वास्तविक video "
+                    "rendering के लिए video-generation API चाहिए।"
                 )
-
             except Exception as e:
-                show_error(e)
+                st.error(str(e))
 
+# =========================================
+# SETTINGS
+# =========================================
 
-# ==========================================
-# STUDY ASSISTANT
-# ==========================================
+elif page == "Settings":
 
-elif page == "Study Assistant":
+    st.title("⚙️ Settings")
 
-    st.title("📚 Study Assistant")
-    st.caption("Your AI learning companion.")
+    st.write("NEXTGEN AI configuration")
 
-    topic = st.text_input(
-        "Enter Topic or Chapter"
+    st.write(
+        "AI Provider: Google Gemini + Auto-Pilot"
     )
 
-    grade = st.selectbox(
-        "Select Class",
-        [
-            "Class 6",
-            "Class 7",
-            "Class 8",
-            "Class 9",
-            "Class 10"
-        ]
+    st.write(
+        "Current model: " + MODEL
     )
 
-    task = st.selectbox(
-        "Choose Study Mode",
-        [
-            "Explain Topic",
-            "Make Detailed Notes",
-            "Important Questions",
-            "Practice Quiz",
-            "Explain Difficult Question"
-        ]
+    st.write(
+        "API Key Status: "
+        + ("Configured" if API_KEY else "Missing")
     )
 
-    language = st.selectbox(
-        "Choose Language",
-        ["Hindi", "English", "Hinglish"]
+    st.checkbox(
+        "Enable voice response",
+        key="voice_enabled"
     )
 
-    if st.button("Start Learning", type="primary") and topic.strip():
+    if st.button("Clear Current Conversation"):
+        st.session_state.messages = []
+        st.session_state.chat_id = None
+        st.rerun()
 
-        with st.spinner("Preparing study material..."):
-
-            try:
-
-                answer = ask_model(
-                    f"You are an excellent school tutor. "
-                    f"Class: {grade}. Topic: {topic}. "
-                    f"Task: {task}. Language: {language}. "
-                    "Teach clearly with examples and accurate explanations."
-                )
-
-                st.markdown(answer)
-
-            except Exception as e:
-                show_error(e)
-
-
-# ==========================================
-# TEXT TOOLS
-# ==========================================
-
-elif page == "Text Tools":
-
-    st.title("✍️ Text Tools")
-
-    tool = st.selectbox(
-        "Choose Text Tool",
-        [
-            "Summarise",
-            "Translate",
-            "Improve Writing",
-            "Fix Grammar",
-            "Make Key Points",
-            "Change Tone"
-        ]
+    st.caption(
+        "NEXTGEN AI | One Platform. Endless Possibilities."
     )
 
-    source = st.text_area(
-        "Enter your text",
-        height=220
-    )
+# =========================================
+# FOOTER
+# =========================================
 
-    language = st.selectbox(
-        "Translate Into",
-        ["Hindi", "English", "French", "Spanish", "German"]
-    )
-
-    if st.button("Process Text", type="primary") and source.strip():
-
-        instructions = {
-            "Summarise": "Summarise this text accurately.",
-            "Translate": f"Translate this text into {language}.",
-            "Improve Writing": "Improve clarity and readability.",
-            "Fix Grammar": "Correct spelling and grammar.",
-            "Make Key Points": "Extract the important points as bullets.",
-            "Change Tone": "Rewrite in a friendly professional tone."
-        }
-
-        try:
-
-            result = ask_model(
-                instructions[tool] + "\n\n" + source
-            )
-
-            st.markdown("### Result")
-            st.write(result)
-
-            st.download_button(
-                "Download Result",
-                result,
-                file_name="nextgen_text_result.txt"
-            )
-
-        except Exception as e:
-            show_error(e)
-
-
-# ==========================================
-# ABOUT
-# ==========================================
-
-elif page == "About":
-
-    st.title("ℹ️ About NEXTGEN AI")
-
-    st.markdown("""
-    # ✨ NEXTGEN AI
-
-    **One Platform. Endless Possibilities.**
-
-    NEXTGEN AI is an AI-powered learning and creativity platform.
-
-    ### Features
-
-    - AI Chat
-    - AI Vision
-    - PDF Assistant
-    - AI Image Prompt Studio
-    - AI Video Prompt Studio
-    - Study Assistant
-    - Text Tools
-
-    ### Technology
-
-    Gemini API powers the AI responses.
-
-    ### Important Information
-
-    Image and Video currently generate prompts only.
-    Actual image and video generation engines are not connected.
-
-    Live Web Search and Voice Calling are not connected yet.
-
-    ### Creator
-
-    Built by Arav.
-    """)
-
-    st.caption("NEXTGEN AI © 2026")
+st.markdown("---")
+st.markdown(
+    "<center style='color:#888'>"
+    "NEXTGEN AI © 2026 | Powered by AI"
+    "</center>",
+    unsafe_allow_html=True
+)

@@ -1,11 +1,7 @@
 streamlit
 google-genai
 python-dotenv
-requests
-Pillow
+pillow
 pypdf
-streamlit-mic-recorder
-streamlit>=1.40.0
-google-genai>=1.0.0
-Pillow>=10.0.0
-pypdf>=5.0.0
+requests
+pandas

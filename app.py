@@ -664,40 +664,139 @@ def show_voice_studio():
 # 9. AI IMAGE PROMPT STUDIO
 # =========================================================
 
+
 def show_image_studio():
-    st.markdown("## 🎨 NEXTGEN AI IMAGE STUDIO")
-    st.caption("Turn your imagination into images.")
+    import os
+    import base64
+    import requests
+    import streamlit as st
+
+    st.markdown("""
+    <div style="padding:22px;border-radius:18px;
+    background:linear-gradient(120deg,#17113b,#101d38);
+    border:1px solid #7048d8;">
+        <h1 style="color:#c7a7ff;margin:0;">🎨 NEXTGEN AI IMAGE STUDIO</h1>
+        <p style="color:#c9c6e8;">Turn your imagination into reality.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("### ✨ Describe Your Imagination")
 
     idea = st.text_area(
-        "Describe your image",
-        placeholder="A majestic lion sitting on a royal throne...",
+        "Your Image Prompt",
+        placeholder="Example: A majestic lion sitting on a golden royal throne...",
         height=120,
         max_chars=1500
     )
 
-    style = st.selectbox(
-        "Image Style",
-        [
-            "Cinematic Realistic",
-            "Ultra Realistic",
-            "3D Animation",
-            "Anime",
-            "Fantasy",
-            "Professional Photography"
-        ]
+    st.caption("Tip: Describe the subject, environment and details for better results.")
+
+    st.write("### 🎭 Visual Settings")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        style = st.selectbox(
+            "Image Style",
+            [
+                "Ultra Realistic",
+                "3D Animation",
+                "Anime",
+                "Cinematic",
+                "Fantasy Art",
+                "Digital Art",
+                "Cartoon",
+                "Oil Painting",
+                "Cyberpunk",
+                "Product Photography"
+            ]
+        )
+
+        image_format = st.selectbox(
+            "Image Format",
+            ["1:1 Square", "16:9 Landscape", "9:16 Portrait", "4:5 Portrait"]
+        )
+
+        lighting = st.selectbox(
+            "Lighting Effects",
+            [
+                "Cinematic Lighting",
+                "Golden Hour",
+                "Neon Glow",
+                "Soft Studio Lighting",
+                "Dramatic Lighting",
+                "Natural Lighting"
+            ]
+        )
+
+    with c2:
+        camera = st.selectbox(
+            "Camera Angle",
+            [
+                "Eye Level",
+                "Low Angle",
+                "High Angle",
+                "Top Down",
+                "Close Up",
+                "Wide Shot",
+                "Portrait Shot"
+            ]
+        )
+
+        color_mood = st.selectbox(
+            "Color Mood",
+            [
+                "Vibrant Colors",
+                "Warm Colors",
+                "Cool Colors",
+                "Dark Moody",
+                "Pastel Colors",
+                "Black and White"
+            ]
+        )
+
+        background = st.selectbox(
+            "Background Selection",
+            [
+                "Automatic",
+                "Royal Palace",
+                "Futuristic City",
+                "Nature",
+                "Professional Studio",
+                "Minimal Background",
+                "Custom Background"
+            ]
+        )
+
+    custom_bg = ""
+    if background == "Custom Background":
+        custom_bg = st.text_input(
+            "Describe Your Background",
+            placeholder="Example: A beautiful mountain landscape"
+        )
+
+    negative_prompt = st.text_area(
+        "Negative Prompt (Optional)",
+        placeholder="Example: blurry, low quality, distorted details...",
+        height=75
     )
 
-    steps = st.slider(
-        "Generation Quality / Steps",
-        min_value=4,
-        max_value=8,
-        value=4
+    with st.expander("💡 Prompt Enhancement Preview"):
+        st.write(
+            "Your selected style, lighting, camera angle, "
+            "colors and background will be combined with your prompt "
+            "to create a more descriptive image request."
+        )
+
+    st.caption(
+        "Note: Image format is currently a prompt instruction; "
+        "the model may not return an exact aspect ratio."
     )
 
     if st.button("✨ GENERATE IMAGE", use_container_width=True):
 
         if not idea.strip():
-            st.warning("Please describe your image.")
+            st.warning("Please describe your image first.")
             return
 
         account_id = st.secrets.get(
@@ -711,8 +810,31 @@ def show_image_studio():
         )
 
         if not account_id or not api_token:
-            st.error("Cloudflare Account ID or API Token missing.")
+            st.error("Cloudflare credentials are missing.")
             return
+
+        background_text = custom_bg if custom_bg else background
+
+        prompt = f"""
+        {idea.strip()}.
+
+        Visual Style: {style}.
+        Image Composition: {image_format}.
+        Lighting: {lighting}.
+        Camera Angle: {camera}.
+        Color Mood: {color_mood}.
+        Background: {background_text}.
+
+        Create a visually impressive, high-detail image.
+        Maintain a clear main subject, realistic textures,
+        balanced composition and professional visual quality.
+        """
+
+        if negative_prompt.strip():
+            prompt += (
+                "\nAvoid these elements: "
+                + negative_prompt.strip()
+            )
 
         model = "@cf/black-forest-labs/flux-1-schnell"
 
@@ -726,20 +848,14 @@ def show_image_studio():
             "Content-Type": "application/json"
         }
 
-        prompt = (
-            f"{idea.strip()}. "
-            f"Visual style: {style}. "
-            "Professional composition, detailed textures, "
-            "beautiful lighting, rich colors, clear subject."
-        )
-
         payload = {
             "prompt": prompt,
-            "steps": steps
+            "steps": 4
         }
 
         try:
-            with st.spinner("🎨 Creating your image..."):
+            with st.spinner("🎨 NEXTGEN AI is creating your image..."):
+
                 response = requests.post(
                     url,
                     headers=headers,
@@ -749,7 +865,7 @@ def show_image_studio():
 
                 if response.status_code != 200:
                     st.error(
-                        f"Cloudflare Error {response.status_code}: "
+                        f"Generation Error {response.status_code}: "
                         f"{response.text[:1000]}"
                     )
                     return
@@ -758,33 +874,32 @@ def show_image_studio():
                 image_b64 = result.get("result", {}).get("image")
 
                 if not image_b64:
-                    st.error("Cloudflare did not return an image.")
+                    st.error("No image was returned by the AI model.")
                     return
 
                 image_bytes = base64.b64decode(image_b64)
 
-                st.success("Your image is ready!")
+                st.success("🎉 Your image is ready!")
 
                 st.image(
                     image_bytes,
-                    caption="Generated by NEXTGEN AI",
+                    caption="Generated with NEXTGEN AI",
                     use_container_width=True
                 )
 
                 st.download_button(
-                    "⬇️ Download Image",
+                    "⬇️ Download Your Image",
                     data=image_bytes,
-                    file_name="nextgen_ai_image.jpg",
-                    mime="image/jpeg",
+                    file_name="nextgen_ai_image.png",
+                    mime="image/png",
                     use_container_width=True
                 )
 
         except requests.exceptions.Timeout:
-            st.error("Image generation timed out. Please try again.")
+            st.error("Generation timed out. Please try again.")
 
         except Exception as e:
             st.error(f"Image Generation Error: {e}")
-
 
     
 

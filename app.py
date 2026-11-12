@@ -663,7 +663,6 @@ def show_voice_studio():
 # 9. AI IMAGE PROMPT STUDIO
 # =========================================================
 
-
 def show_image_studio():
     st.markdown("## 🎨 NEXTGEN AI IMAGE STUDIO")
     st.caption("Turn your imagination into images.")
@@ -671,128 +670,120 @@ def show_image_studio():
     idea = st.text_area(
         "Describe your image",
         placeholder="A majestic lion sitting on a royal throne...",
-        height=120
+        height=120,
+        max_chars=1500
     )
 
-    col1, col2 = st.columns(2)
+    style = st.selectbox(
+        "Image Style",
+        [
+            "Cinematic Realistic",
+            "Ultra Realistic",
+            "3D Animation",
+            "Anime",
+            "Fantasy",
+            "Professional Photography"
+        ]
+    )
 
-    with col1:
-        style = st.selectbox(
-            "Image Style",
-            [
-                "Cinematic Realistic",
-                "Ultra Realistic",
-                "3D Animation",
-                "Anime",
-                "Fantasy",
-                "Professional Photography"
-            ]
-        )
+    steps = st.slider(
+        "Generation Quality / Steps",
+        min_value=4,
+        max_value=8,
+        value=4
+    )
 
-    with col2:
-        ratio = st.selectbox(
-            "Aspect Ratio",
-            ["1:1", "16:9", "9:16", "4:5"]
-        )
+    if st.button("✨ GENERATE IMAGE", use_container_width=True):
 
-    quality = st.selectbox(
-    "Generation Model",
-    [
-        "@cf/black-forest-labs/flux-1-schnell"
-    ],
-    format_func=lambda x: "FLUX.1 Schnell - Fast Image Generation"
-)
-
-    if st.button(
-        "✨ GENERATE IMAGE",
-        use_container_width=True
-    ):
         if not idea.strip():
             st.warning("Please describe your image.")
             return
 
-        if not GEMINI_KEY:
-            st.error("Gemini API key missing.")
+        account_id = st.secrets.get(
+            "CLOUDFLARE_ACCOUNT_ID",
+            os.getenv("CLOUDFLARE_ACCOUNT_ID")
+        )
+
+        api_token = st.secrets.get(
+            "CLOUDFLARE_API_TOKEN",
+            os.getenv("CLOUDFLARE_API_TOKEN")
+        )
+
+        if not account_id or not api_token:
+            st.error("Cloudflare Account ID or API Token missing.")
             return
 
-        prompt = f"""
-Create a beautiful, high-quality image.
+        model = "@cf/black-forest-labs/flux-1-schnell"
 
-Main idea: {idea}
+        url = (
+            f"https://api.cloudflare.com/client/v4/accounts/"
+            f"{account_id}/ai/run/{model}"
+        )
 
-Visual style: {style}
-Aspect ratio: {ratio}
+        headers = {
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json"
+        }
 
-Requirements:
-- Detailed composition
-- Professional lighting
-- Beautiful colors
-- Clear subject
-- Rich textures
-- Cinematic visual quality
-- Carefully composed background
+        prompt = (
+            f"{idea.strip()}. "
+            f"Visual style: {style}. "
+            "Professional composition, detailed textures, "
+            "beautiful lighting, rich colors, clear subject."
+        )
 
-Generate the actual image, not an image prompt.
-"""
+        payload = {
+            "prompt": prompt,
+            "steps": steps
+        }
 
         try:
-            client = get_client()
-
-            with st.spinner(
-                "🎨 Creating your image... Please wait."
-            ):
-                response = client.models.generate_content(
-                    model=quality,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["IMAGE"]
-                    )
+            with st.spinner("🎨 Creating your image..."):
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=180
                 )
 
-            generated_image = None
+                if response.status_code != 200:
+                    st.error(
+                        f"Cloudflare Error {response.status_code}: "
+                        f"{response.text[:1000]}"
+                    )
+                    return
 
-            for part in response.parts:
-                if part.inline_data is not None:
-                    generated_image = part.as_image()
-                    break
+                result = response.json()
+                image_b64 = result.get("result", {}).get("image")
 
-            if generated_image is None:
-                st.error("No image was returned. Try again.")
-                return
+                if not image_b64:
+                    st.error("Cloudflare did not return an image.")
+                    return
 
-            st.success("Your image is ready!")
+                image_bytes = base64.b64decode(image_b64)
 
-            st.image(
-                generated_image,
-                caption="Generated by NEXTGEN AI",
-                use_container_width=True
-            )
+                st.success("Your image is ready!")
 
-            image_bytes = io.BytesIO()
-            generated_image.save(image_bytes, format="PNG")
+                st.image(
+                    image_bytes,
+                    caption="Generated by NEXTGEN AI",
+                    use_container_width=True
+                )
 
-            st.download_button(
-                "⬇️ Download Image",
-                data=image_bytes.getvalue(),
-                file_name="nextgen_ai_image.png",
-                mime="image/png",
-                use_container_width=True
-            )
+                st.download_button(
+                    "⬇️ Download Image",
+                    data=image_bytes,
+                    file_name="nextgen_ai_image.jpg",
+                    mime="image/jpeg",
+                    use_container_width=True
+                )
+
+        except requests.exceptions.Timeout:
+            st.error("Image generation timed out. Please try again.")
 
         except Exception as e:
-            error = str(e)
+            st.error(f"Image Generation Error: {e}")
 
-            if "503" in error or "UNAVAILABLE" in error:
-                st.warning(
-                    "Image model is busy. Please try again later."
-                )
-            elif "429" in error or "RESOURCE_EXHAUSTED" in error:
-                st.error(
-                    "API quota or billing limit reached. "
-                    "Check your Google AI Studio account."
-                )
-            else:
-                st.error(f"Image Generation Error: {error}")
 
     
 

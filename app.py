@@ -220,7 +220,7 @@ def generate_groq_answer(contents, system_instruction=None):
     })
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=messages,
         temperature=0.7
     )

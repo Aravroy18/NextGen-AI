@@ -17,7 +17,6 @@ from auto_pilot import generate_with_autopilot
 
 # =========================================
 # NEXTGEN AI
-# ChatGPT-style interface
 # =========================================
 
 load_dotenv()
@@ -269,42 +268,105 @@ with st.sidebar:
     st.caption(
         f"Last AI Provider: {st.session_state.last_provider}"
     )
-
-# =========================================
-# CHAT PAGE
-# =========================================
+# ==========================================
+# NEXTGEN AI
+# ==========================================
 
 if page == "AI Chat":
 
     st.markdown("""
-    <div class="hero">
-        <h1>🚀 NEXTGEN AI</h1>
-        <p>What can I help you with today?</p>
-    </div>
+    <style>
+    .stApp {
+        background: #212121;
+        color: #ffffff;
+    }
+
+    [data-testid="stSidebar"] {
+        background: #171717;
+    }
+
+    [data-testid="stChatMessage"] {
+        background: transparent;
+        border: none;
+        padding: 12px;
+    }
+
+    .chat-title {
+        text-align: center;
+        padding: 35px 10px 25px;
+    }
+
+    .chat-title h1 {
+        color: #ffffff !important;
+        font-size: 32px;
+    }
+
+    .chat-title p {
+        color: #aaaaaa;
+    }
+
+    </style>
     """, unsafe_allow_html=True)
 
-    # Display conversation
+    if not st.session_state.messages:
+
+        st.markdown("""
+        <div class="chat-title">
+            <h1>🚀 NEXTGEN AI</h1>
+            <p>What can I help you with today?</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.write("")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.button(
+                "💡 Explain something",
+                use_container_width=True
+            )
+            st.button(
+                "💻 Help me code",
+                use_container_width=True
+            )
+
+        with col2:
+            st.button(
+                "✍️ Write something",
+                use_container_width=True
+            )
+            st.button(
+                "📚 Help me study",
+                use_container_width=True
+            )
+
+    # Conversation history
     for msg in st.session_state.messages:
+
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
             if msg["role"] == "assistant":
-                safe_text = json.dumps(msg["content"])
+
+                speech_text = json.dumps(
+                    msg["content"],
+                    ensure_ascii=False
+                )
 
                 components.html(
                     f"""
-                    <button onclick='
-                    const text = {safe_text};
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = "hi-IN";
+                    <button onclick="
+                    const u = new SpeechSynthesisUtterance({speech_text});
+                    u.lang = 'hi-IN';
                     speechSynthesis.cancel();
-                    speechSynthesis.speak(utterance);
-                    ' style="
+                    speechSynthesis.speak(u);
+                    " style="
                     background:#303030;
                     color:white;
                     border:1px solid #555;
-                    padding:7px 13px;
-                    border-radius:10px;
+                    border-radius:20px;
+                    padding:7px 15px;
                     cursor:pointer;">
                     🔊 Listen
                     </button>
@@ -313,43 +375,35 @@ if page == "AI Chat":
                 )
 
     # Attachments
-    with st.expander("＋ Attach files or images"):
+    with st.expander("＋ Attach files and images"):
+
         uploaded_files = st.file_uploader(
-            "Choose files",
+            "Upload your files",
             type=[
                 "png", "jpg", "jpeg", "webp",
                 "pdf", "txt", "py", "js",
                 "html", "css", "csv"
             ],
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            key="chat_uploads"
         )
 
-        if uploaded_files:
-            st.write(
-                f"{len(uploaded_files)} file(s) attached."
-            )
-
-    # Microphone
-    audio = None
+    # Microphone input
     with st.expander("🎙️ Talk to NEXTGEN AI"):
-        try:
-            audio = st.audio_input("Record your question")
-        except Exception:
-            st.info(
-                "Audio input आपके Streamlit version में उपलब्ध नहीं है। "
-                "अपडेट करके फिर कोशिश करें।"
-            )
 
+        audio = st.audio_input(
+            "Record your question",
+            key="chat_audio"
+        )
+
+    # Message box
     prompt = st.chat_input(
         "Message NEXTGEN AI..."
     )
 
     if prompt or audio:
 
-        if prompt:
-            user_text = prompt
-        else:
-            user_text = "Please listen to this audio and answer the spoken question."
+        user_text = prompt or "Please listen to my audio and answer."
 
         st.session_state.messages.append({
             "role": "user",
@@ -360,21 +414,29 @@ if page == "AI Chat":
             st.markdown(user_text)
 
         contents = [
-            "You are NEXTGEN AI, a helpful and intelligent assistant. "
-            "Answer naturally in the user's language. "
-            "Explain clearly and do not invent facts.\n\n"
+            """
+            You are NEXTGEN AI, an intelligent and friendly
+            AI assistant. Respond naturally like a conversational
+            assistant. Use the user's language. Give clear,
+            accurate and helpful answers.
+            """
         ]
 
+        # Previous conversation
         for msg in st.session_state.messages[-12:]:
+
             contents.append(
                 f'{msg["role"].upper()}: {msg["content"]}'
             )
 
-        for uploaded in uploaded_files or []:
-            raw = uploaded.getvalue()
-            mime = uploaded.type or "application/octet-stream"
+        # Uploaded files
+        for file in uploaded_files or []:
+
+            raw = file.getvalue()
+            mime = file.type or ""
 
             if mime.startswith("image/"):
+
                 contents.append(
                     types.Part.from_bytes(
                         data=raw,
@@ -383,72 +445,80 @@ if page == "AI Chat":
                 )
 
             elif mime == "application/pdf":
-                try:
-                    reader = PdfReader(io.BytesIO(raw))
-                    pdf_text = "\n".join(
-                        p.extract_text() or ""
-                        for p in reader.pages
-                    )
-                    contents.append(
-                        f"Attached PDF ({uploaded.name}):\n"
-                        + pdf_text[:20000]
-                    )
-                except Exception:
-                    contents.append(
-                        f"Could not read PDF: {uploaded.name}"
-                    )
 
-            elif mime.startswith("text/") or uploaded.name.endswith(
-                (".py", ".js", ".html", ".css", ".csv")
-            ):
-                contents.append(
-                    f"Attached file {uploaded.name}:\n"
-                    + raw.decode("utf-8", errors="replace")[:15000]
+                reader = PdfReader(io.BytesIO(raw))
+
+                pdf_text = "\n".join(
+                    p.extract_text() or ""
+                    for p in reader.pages
                 )
 
+                contents.append(
+                    f"PDF FILE: {file.name}\n{pdf_text[:20000]}"
+                )
+
+            else:
+
+                contents.append(
+                    f"FILE: {file.name}\n"
+                    + raw.decode(
+                        "utf-8",
+                        errors="replace"
+                    )[:12000]
+                )
+
+        # Audio
         if audio is not None:
+
             contents.append(
                 types.Part.from_bytes(
                     data=audio.getvalue(),
                     mime_type=audio.type or "audio/wav"
                 )
             )
+
             contents.append(
-                "Understand the audio, transcribe the user's question "
-                "if needed, and answer it."
+                "Understand the user's spoken question "
+                "and answer it naturally."
             )
 
         with st.chat_message("assistant"):
+
             try:
+
                 with st.spinner("NEXTGEN AI is thinking..."):
-                    answer = ask_ai(contents)
+
+                    answer = generate_answer(contents)
 
                 st.markdown(answer)
 
-                safe_text = json.dumps(answer)
+                speech_text = json.dumps(
+                    answer,
+                    ensure_ascii=False
+                )
 
                 components.html(
                     f"""
-                    <button onclick='
-                    const text = {safe_text};
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = "hi-IN";
+                    <button onclick="
+                    const u = new SpeechSynthesisUtterance({speech_text});
+                    u.lang = 'hi-IN';
                     speechSynthesis.cancel();
-                    speechSynthesis.speak(utterance);
-                    ' style="
+                    speechSynthesis.speak(u);
+                    " style="
                     background:#303030;
                     color:white;
                     border:1px solid #555;
-                    padding:7px 13px;
-                    border-radius:10px;
+                    border-radius:20px;
+                    padding:8px 16px;
                     cursor:pointer;">
-                    🔊 Listen to answer
+                    🔊 Listen to response
                     </button>
                     """,
                     height=45
                 )
 
             except Exception as e:
+
                 answer = f"AI Error: {e}"
                 st.error(answer)
 
@@ -457,51 +527,8 @@ if page == "AI Chat":
             "content": answer
         })
 
-        title = (
-            st.session_state.messages[0]["content"][:45]
-            if st.session_state.messages else "New Chat"
-        )
-
-        st.session_state.chat_id = save_chat(
-            title,
-            st.session_state.messages,
-            st.session_state.chat_id
-        )
-
         st.rerun()
 
-# =========================================
-# VISION
-# =========================================
-
-elif page == "AI Vision":
-
-    st.title("👁️ AI Vision")
-    st.write("Upload an image and ask NEXTGEN AI about it.")
-
-    image_file = st.file_uploader(
-        "Upload Image",
-        type=["png", "jpg", "jpeg", "webp"]
-    )
-
-    question = st.text_input(
-        "What should I understand from this image?"
-    )
-
-    if image_file:
-        image = Image.open(image_file)
-        st.image(image, use_container_width=True)
-
-        if st.button("Analyze Image"):
-            try:
-                with st.spinner("Analyzing image..."):
-                    answer = ask_ai([
-                        question or "Describe this image.",
-                        image
-                    ])
-                st.markdown(answer)
-            except Exception as e:
-                st.error(str(e))
 
 # =========================================
 # PDF ASSISTANT

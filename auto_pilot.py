@@ -1,7 +1,7 @@
+
 import time
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-
 
 def _get_status_code(error):
     for attribute in ("code", "status_code", "http_status"):
@@ -21,17 +21,11 @@ def _get_status_code(error):
 
     return None
 
-
 def generate_with_autopilot(client, model, contents, backup_func=None):
 
-    wait_times = (2, 4)
-
-    for attempt in range(3):
-
+    for attempt in range(2):
         try:
-            print(
-                f"NEXTGEN AUTO-PILOT: Gemini attempt {attempt + 1}/3"
-            )
+            print(f"NEXTGEN: Gemini attempt {attempt + 1}/2")
 
             response = client.models.generate_content(
                 model=model,
@@ -46,31 +40,25 @@ def generate_with_autopilot(client, model, contents, backup_func=None):
             raise RuntimeError("Gemini returned an empty response.")
 
         except Exception as error:
-
             status_code = _get_status_code(error)
 
-            print(f"NEXTGEN AUTO-PILOT ERROR: {error}")
+            print(f"Gemini Error: {error}")
 
             if status_code not in RETRYABLE_STATUS_CODES:
-                raise
+                break
 
-            if attempt < 2:
-                wait_seconds = wait_times[attempt]
-
-                print(
-                    f"Retrying in {wait_seconds} seconds..."
-                )
-
-                time.sleep(wait_seconds)
+            if attempt == 0:
+                time.sleep(1)
 
     if backup_func is not None:
+        try:
+            backup_answer = backup_func(contents)
 
-        backup_answer = backup_func(contents)
-
-        if backup_answer and backup_answer.strip():
-            return backup_answer, "Backup AI"
+            if backup_answer and backup_answer.strip():
+                return backup_answer, "Backup AI"
+        except Exception as error:
+            print(f"Backup AI Error: {error}")
 
     raise RuntimeError(
-        "Gemini is temporarily unavailable after 3 attempts. "
-        "No backup provider is configured yet."
+        "AI is temporarily unavailable. Please try again."
     )

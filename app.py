@@ -31,7 +31,7 @@ st.set_page_config(
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 FINNHUB_KEY = os.getenv("FINNHUB_API_KEY")
-MODEL = "gemini-3.5-flash"
+MODEL = "gemini-3.8-flash"
 DB_PATH = "nextgen_users.db"
 
 # =========================================

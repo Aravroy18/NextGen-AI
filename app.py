@@ -158,67 +158,50 @@ def load_messages(username):
 
 init_db()
 
-# =========================================================
-# 3. AI CLIENT
-# =========================================================
+
+def get_groq_key():
+    try:
+        return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        return os.getenv("GROQ_API_KEY")
+
 
 @st.cache_resource
-def get_client():
-    if not GEMINI_KEY:
+def get_groq_client():
+    key = get_groq_key()
+
+    if not key:
         return None
 
-    return genai.Client(api_key=GEMINI_KEY)
+    return Groq(api_key=key)
 
 
-def generate_answer(contents, system_instruction=None):
-    client = get_client()
+def generate_groq_answer(contents, system_instruction=None):
+    client = get_groq_client()
 
     if client is None:
-        raise ValueError("GEMINI_API_KEY missing.")
+        raise ValueError("GROQ_API_KEY missing.")
 
-    # Google Search Tool
-    search_tool = types.Tool(
-        google_search=types.GoogleSearch()
+    messages = []
+
+    if system_instruction:
+        messages.append({
+            "role": "system",
+            "content": system_instruction
+        })
+
+    messages.append({
+        "role": "user",
+        "content": contents
+    })
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=messages,
+        temperature=0.7
     )
 
-    # AI configuration
-    config = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        temperature=0.7,
-        tools=[search_tool]
-    )
-
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=config
-    )
-
-    answer = response.text or "AI could not generate a response."
-
-    # Collect web sources
-    sources = []
-
-    for candidate in (response.candidates or []):
-        metadata = getattr(
-            candidate, "grounding_metadata", None
-        )
-
-        if metadata:
-            for chunk in (metadata.grounding_chunks or []):
-                web = getattr(chunk, "web", None)
-
-                if web and web.uri:
-                    item = f"- [{web.title}]({web.uri})"
-                    if item not in sources:
-                        sources.append(item)
-
-    if sources:
-        answer += "\n\n### 🌐 Web Sources\n"
-        answer += "\n".join(sources)
-
-    return answer
-
+    return response.choices[0].message.content
 
 
 

@@ -1,7 +1,7 @@
 streamlit
 google-genai
 python-dotenv
-pillow
+requests
+Pillow
 pypdf
-streamlit-webrtc
 streamlit-mic-recorder

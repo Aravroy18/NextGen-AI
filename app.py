@@ -696,17 +696,12 @@ def show_image_studio():
         )
 
     quality = st.selectbox(
-        "Generation Model",
-        [
-            "IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
-            "IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell""
-        ],
-        format_func=lambda x: (
-            "High Quality + Speed"
-            if x == "gemini-3.1-flash-image"
-            else "Faster + Lower Cost"
-        )
-    )
+    "Generation Model",
+    [
+        "@cf/black-forest-labs/flux-1-schnell"
+    ],
+    format_func=lambda x: "FLUX.1 Schnell - Fast Image Generation"
+)
 
     if st.button(
         "✨ GENERATE IMAGE",

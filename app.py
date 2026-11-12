@@ -698,7 +698,7 @@ def show_image_studio():
     quality = st.selectbox(
         "Generation Model",
         [
-            "IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"",
+            IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
             "IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell""
         ],
         format_func=lambda x: (

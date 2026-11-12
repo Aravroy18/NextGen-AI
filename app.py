@@ -4,11 +4,12 @@ import io
 import sqlite3
 import hashlib
 import secrets
-from datetime import datetime
-
 import requests
 import pandas as pd
 import streamlit as st
+import base64
+
+from datetime import datetime
 from dotenv import load_dotenv
 from PIL import Image
 from pypdf import PdfReader

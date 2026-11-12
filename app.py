@@ -168,55 +168,56 @@ def get_client():
 
     return genai.Client(api_key=GEMINI_KEY)
 
+
 def generate_answer(contents, system_instruction=None):
     client = get_client()
 
     if client is None:
         raise ValueError("GEMINI_API_KEY missing.")
 
-    config = None
+    # Google Search Tool
+    search_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
 
-    if system_instruction:
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.7
+    # AI configuration
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.7,
+        tools=[search_tool]
+    )
+
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=contents,
+        config=config
+    )
+
+    answer = response.text or "AI could not generate a response."
+
+    # Collect web sources
+    sources = []
+
+    for candidate in (response.candidates or []):
+        metadata = getattr(
+            candidate, "grounding_metadata", None
         )
 
-    # First try: Primary model
-    try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=contents,
-            config=config
-        )
+        if metadata:
+            for chunk in (metadata.grounding_chunks or []):
+                web = getattr(chunk, "web", None)
 
-        return response.text or "AI could not generate a response."
+                if web and web.uri:
+                    item = f"- [{web.title}]({web.uri})"
+                    if item not in sources:
+                        sources.append(item)
 
-    except Exception as primary_error:
-        error_text = str(primary_error).upper()
+    if sources:
+        answer += "\n\n### 🌐 Web Sources\n"
+        answer += "\n".join(sources)
 
-        # Use backup only for temporary overload/quota errors
-        if not any(code in error_text for code in [
-            "503", "UNAVAILABLE", "429",
-            "RESOURCE_EXHAUSTED"
-        ]):
-            raise
+    return answer
 
-        # Second try: Backup model
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.5-flash",
-                contents=contents,
-                config=config
-            )
-
-            return response.text or "AI could not generate a response."
-
-        except Exception as backup_error:
-            raise RuntimeError(
-                "Our AI servers are temporarily busy. "
-                "Please try again shortly."
-            ) from backup_error
 
 
 

@@ -909,54 +909,217 @@ def show_image_studio():
 # =========================================================
 
 def show_video_studio():
-    st.markdown("## 🎬 AI VIDEO STUDIO")
-    st.caption("Generate scene-by-scene video scripts and prompts.")
+    import os
+    import requests
+    import streamlit as st
 
-    idea = st.text_area(
-        "Video idea",
-        placeholder="A cinematic Diwali celebration..."
+    st.markdown("""
+    <div style="
+        padding:22px;
+        border-radius:18px;
+        background:linear-gradient(120deg,#17113b,#101d38);
+        border:1px solid #7048d8;">
+        <h1 style="color:#c7a7ff;margin:0;">
+            🎬 NEXTGEN AI VIDEO STUDIO
+        </h1>
+        <p style="color:#c9c6e8;">
+            Turn your imagination into cinematic videos.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("### ✨ Describe Your Video")
+
+    prompt = st.text_area(
+        "Your Video Idea",
+        placeholder="A majestic lion walking through a royal palace...",
+        height=120,
+        max_chars=2500
     )
 
-    duration = st.selectbox(
-        "Video duration",
-        ["20 seconds", "30 seconds", "60 seconds", "90 seconds", "2 minutes"]
+    st.caption(
+        "Write one simple line or a detailed prompt. "
+        "AI will use your description to generate a video."
     )
 
-    language = st.selectbox(
-        "Language",
-        ["Hindi", "English", "Hinglish"]
+    with st.expander("⚙️ Advanced Settings (Optional)"):
+
+        style = st.selectbox(
+            "Visual Style",
+            [
+                "Automatic",
+                "Cinematic Realistic",
+                "3D Animation",
+                "Anime",
+                "Fantasy",
+                "Cartoon",
+                "Professional Film"
+            ]
+        )
+
+        camera = st.selectbox(
+            "Camera Movement",
+            [
+                "Automatic",
+                "Smooth Tracking Shot",
+                "Slow Zoom In",
+                "Wide Cinematic Shot",
+                "Close Up"
+            ]
+        )
+
+        ratio = st.selectbox(
+            "Video Format",
+            ["9:16", "16:9", "1:1", "4:3", "3:4"]
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        duration = st.slider(
+            "Video Duration (seconds)",
+            min_value=5,
+            max_value=15,
+            value=5
+        )
+
+    with col2:
+        resolution = st.selectbox(
+            "Resolution",
+            ["480P", "720P", "1080P"]
+        )
+
+    st.info(
+        "Video generation uses Cloudflare's paid model. "
+        "Check the charges before generating."
     )
 
-    if st.button("Generate Video Plan"):
-        if not idea.strip():
-            st.warning("Enter your video idea.")
+    approved = st.checkbox(
+        "A parent/guardian has approved any applicable usage charges."
+    )
+
+    if st.button(
+        "🎬 GENERATE VIDEO",
+        use_container_width=True
+    ):
+
+        if not prompt.strip():
+            st.warning("Please enter a video idea.")
             return
 
-        prompt = f"""
-Create a professional AI video production plan.
+        if not approved:
+            st.warning(
+                "Please get parent/guardian approval before generation."
+            )
+            return
 
-Idea: {idea}
-Duration: {duration}
-Language: {language}
+        try:
+            account_id = st.secrets.get(
+                "CLOUDFLARE_ACCOUNT_ID",
+                os.getenv("CLOUDFLARE_ACCOUNT_ID")
+            )
 
-For every scene provide:
-1. Scene number and duration
-2. Photo generation prompt
-3. Video animation prompt
-4. Dialogue or voiceover
-5. Camera movement
-6. Sound and transition suggestion
+            api_token = st.secrets.get(
+                "CLOUDFLARE_API_TOKEN",
+                os.getenv("CLOUDFLARE_API_TOKEN")
+            )
 
-Keep character appearance consistent.
-Do not claim to render an actual video.
-"""
+        except Exception:
+            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+            api_token = os.getenv("CLOUDFLARE_API_TOKEN")
 
-        with st.spinner("Creating video plan..."):
-            try:
-                st.markdown(generate_answer(prompt))
-            except Exception as e:
-                st.error(str(e))
+        if not account_id or not api_token:
+            st.error("Cloudflare credentials are missing.")
+            return
 
+        final_prompt = f"""
+        {prompt.strip()}.
+
+        Visual style: {style}.
+        Camera movement: {camera}.
+        Create a coherent cinematic video with smooth motion,
+        detailed visuals and professional composition.
+        """
+
+        url = (
+            "https://api.cloudflare.com/client/v4/accounts/"
+            f"{account_id}/ai/run"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "alibaba/wan-3.0",
+            "input": {
+                "prompt": final_prompt,
+                "resolution": resolution,
+                "ratio": ratio,
+                "duration": duration
+            }
+        }
+
+        try:
+            with st.spinner(
+                "🎬 NEXTGEN AI is creating your video..."
+            ):
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=300
+                )
+
+                if response.status_code != 200:
+                    st.error(
+                        f"Cloudflare Error {response.status_code}"
+                    )
+                    st.code(response.text[:1500])
+                    return
+
+                data = response.json()
+                video_url = data.get("result", {}).get("video")
+
+                if not video_url:
+                    st.error(
+                        "Video is not ready or no video URL was returned."
+                    )
+                    st.write(data)
+                    return
+
+                video_response = requests.get(
+                    video_url,
+                    timeout=180
+                )
+                video_response.raise_for_status()
+
+                video_bytes = video_response.content
+
+                st.success("🎉 Your video is ready!")
+
+                st.video(video_bytes)
+
+                st.download_button(
+                    "⬇️ Download Video",
+                    data=video_bytes,
+                    file_name="nextgen_ai_video.mp4",
+                    mime="video/mp4",
+                    use_container_width=True
+                )
+
+        except requests.exceptions.Timeout:
+            st.error(
+                "Video generation timed out. "
+                "Check Cloudflare usage before trying again."
+            )
+
+        except requests.exceptions.RequestException as e:
+            st.error(f"Network Error: {e}")
+
+        except Exception as e:
+            st.error(f"Video Generation Error: {e}")
 
 # =========================================================
 # 11. AI CHAT

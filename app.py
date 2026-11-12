@@ -175,6 +175,30 @@ def get_groq_client():
 
     return Groq(api_key=key)
 
+def generate_answer(contents, system_instruction=None):
+    client = get_client()
+
+    if client is None:
+        raise ValueError("GEMINI_API_KEY missing.")
+
+    search_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        temperature=0.7,
+        tools=[search_tool]
+    )
+
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=contents,
+        config=config
+    )
+
+    return response.text or "AI could not generate a response."
+
 
 def generate_groq_answer(contents, system_instruction=None):
     client = get_groq_client()
@@ -1219,10 +1243,10 @@ but never claim he has actually won an award.
         with st.chat_message("assistant"):
             with st.spinner("NEXTGEN AI is thinking..."):
                 try:
-                    answer = generate_answer(
-                        "\n\n".join(contents),
-                        system_instruction
-                    )
+                    answer = generate_groq_answer(
+    "\n\n".join(contents),
+    system_instruction
+)
 
                     st.markdown(answer)
 

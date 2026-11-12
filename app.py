@@ -1536,21 +1536,7 @@ else:
             key="main_navigation"
         )
 
-        st.session_state.page = page
-
-        st.divider()
-
-        st.markdown("### 🔌 System Status")
-
-        if GEMINI_KEY:
-            st.success("Gemini API configured")
-        else:
-            st.error("Gemini API key missing")
-
-        if FINNHUB_KEY:
-            st.success("Finnhub configured")
-        else:
-            st.warning("Finnhub API key missing")
+        st.session_state.page 
 
         st.caption(f"Model: {MODEL}")
 

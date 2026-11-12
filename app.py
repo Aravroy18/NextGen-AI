@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 import base64
 
+from groq import Groq
 from datetime import datetime
 from dotenv import load_dotenv
 from PIL import Image

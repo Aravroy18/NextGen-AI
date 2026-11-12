@@ -22,6 +22,7 @@ def _get_status_code(error):
     return None
 
 def generate_with_autopilot(client, model, contents, backup_func=None):
+    last_error = None
 
     for attempt in range(2):
         try:
@@ -40,9 +41,10 @@ def generate_with_autopilot(client, model, contents, backup_func=None):
             raise RuntimeError("Gemini returned an empty response.")
 
         except Exception as error:
+            last_error = error
             status_code = _get_status_code(error)
 
-            print(f"Gemini Error: {error}")
+            print(f"Gemini Error: {repr(error)}")
 
             if status_code not in RETRYABLE_STATUS_CODES:
                 break
@@ -57,8 +59,8 @@ def generate_with_autopilot(client, model, contents, backup_func=None):
             if backup_answer and backup_answer.strip():
                 return backup_answer, "Backup AI"
         except Exception as error:
-            print(f"Backup AI Error: {error}")
-   print("FINAL GEMINI STATUS:", status_code)
+            print(f"Backup AI Error: {repr(error)}")
+
     raise RuntimeError(
-        "AI is temporarily unavailable. Please try again."
+        f"AI unavailable. Original error: {last_error}"
     )

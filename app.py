@@ -375,13 +375,32 @@ Use headings and examples where useful.
 Do not claim to have performed actions that you cannot actually perform.
 """
 
-        with st.spinner("NEXTGEN AI is thinking..."):
-            try:
-                answer = generate_answer(prompt)
-                st.markdown("### ✨ Your Result")
-                st.markdown(answer)
-            except Exception as e:
-                st.error(f"AI Error: {e}")
+        
+with st.spinner("NEXTGEN AI is thinking..."):
+    try:
+        answer = generate_answer(prompt)
+
+        st.markdown("### ✨ Your Result")
+        st.markdown(answer)
+
+    except Exception as e:
+        error_text = str(e)
+
+        if "503" in error_text or "UNAVAILABLE" in error_text:
+            st.warning(
+                "Gemini is currently busy. "
+                "Please try again after a short wait."
+            )
+
+        elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+            st.warning(
+                "Gemini API usage limit reached. "
+                "Please check your API quota."
+            )
+
+        else:
+            st.error(f"AI Tool Error: {error_text}")
+
 
 
 # =========================================================

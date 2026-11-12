@@ -32,7 +32,7 @@ st.set_page_config(
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 FINNHUB_KEY = os.getenv("FINNHUB_API_KEY", "")
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash-lite")
 DB_PATH = "nextgen_users.db"
 
 # =========================================================
@@ -378,30 +378,30 @@ Do not claim to have performed actions that you cannot actually perform.
 """
 
         
-with st.spinner("NEXTGEN AI is thinking..."):
-    try:
-        answer = generate_answer(prompt)
+        with st.spinner("NEXTGEN AI is thinking..."):
+            try:
+                answer = generate_answer(prompt)
 
-        st.markdown("### ✨ Your Result")
-        st.markdown(answer)
+                st.markdown("### ✨ Your Result")
+                st.markdown(answer)
 
-    except Exception as e:
-        error_text = str(e)
+            except Exception as e:
+                error_text = str(e)
 
-        if "503" in error_text or "UNAVAILABLE" in error_text:
-            st.warning(
-                "Gemini is currently busy. "
-                "Please try again after a short wait."
-            )
+                if "503" in error_text or "UNAVAILABLE" in error_text:
+                    st.warning(
+                        "Gemini is currently busy. "
+                        "Please try again after a short wait."
+                    )
 
-        elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-            st.warning(
-                "Gemini API usage limit reached. "
-                "Please check your API quota."
-            )
+                elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+                    st.warning(
+                        "Gemini API usage limit reached. "
+                        "Please check your API quota."
+                    )
 
-        else:
-            st.error(f"AI Tool Error: {error_text}")
+                else:
+                    st.error(f"AI Tool Error: {error_text}")
 
 
 

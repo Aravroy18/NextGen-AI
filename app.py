@@ -698,8 +698,8 @@ def show_image_studio():
     quality = st.selectbox(
         "Generation Model",
         [
-            "gemini-3.1-flash-image",
-            "gemini-3.1-flash-lite-image"
+            "MODEL = "@cf/black-forest-labs/flux-1-schnell",
+            "IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell""
         ],
         format_func=lambda x: (
             "High Quality + Speed"

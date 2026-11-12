@@ -32,7 +32,7 @@ st.set_page_config(
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 FINNHUB_KEY = os.getenv("FINNHUB_API_KEY", "")
 
-MODEL = os.getenv("MODEL", "gemini-3.8-flash")
+MODEL = os.getenv("MODEL", "gemini-3.5-flash")
 DB_PATH = "nextgen_users.db"
 
 # =========================================================
@@ -168,14 +168,11 @@ def get_client():
 
     return genai.Client(api_key=GEMINI_KEY)
 
-
 def generate_answer(contents, system_instruction=None):
     client = get_client()
 
     if client is None:
-        raise ValueError(
-            "GEMINI_API_KEY missing. Please check your .env file."
-        )
+        raise ValueError("GEMINI_API_KEY missing.")
 
     config = None
 
@@ -185,13 +182,44 @@ def generate_answer(contents, system_instruction=None):
             temperature=0.7
         )
 
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=config
-    )
+    # First try: Primary model
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=config
+        )
 
-    return response.text or "AI could not generate a response."
+        return response.text or "AI could not generate a response."
+
+    except Exception as primary_error:
+        error_text = str(primary_error).upper()
+
+        # Use backup only for temporary overload/quota errors
+        if not any(code in error_text for code in [
+            "503", "UNAVAILABLE", "429",
+            "RESOURCE_EXHAUSTED"
+        ]):
+            raise
+
+        # Second try: Backup model
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=contents,
+                config=config
+            )
+
+            return response.text or "AI could not generate a response."
+
+        except Exception as backup_error:
+            raise RuntimeError(
+                "Our AI servers are temporarily busy. "
+                "Please try again shortly."
+            ) from backup_error
+
+
+
 
 
 

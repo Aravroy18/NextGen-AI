@@ -1,12 +1,14 @@
 
 import os
 import io
-import json
 import sqlite3
-import html
-import streamlit as st
-import streamlit.components.v1 as components
+import hashlib
+import secrets
+from datetime import datetime, date
 
+import requests
+import streamlit as st
+import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -21,77 +23,132 @@ from auto_pilot import generate_with_autopilot
 
 load_dotenv()
 
-APP_NAME = "NEXTGEN AI"
-MODEL = "gemini-3.8-flash"
-DB_FILE = "nextgen_history.db"
-
 st.set_page_config(
     page_title="NEXTGEN AI",
     page_icon="🚀",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+FINNHUB_KEY = os.getenv("FINNHUB_API_KEY")
+MODEL = "gemini-3.8-flash"
+DB_PATH = "nextgen_users.db"
 
 # =========================================
 # DATABASE
 # =========================================
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS chats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            messages TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+def database():
+    con = sqlite3.connect(DB_PATH)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL
         )
     """)
-    conn.commit()
-    conn.close()
-
-def save_chat(title, messages, chat_id=None):
-    conn = sqlite3.connect(DB_FILE)
-    data = json.dumps(messages, ensure_ascii=False)
-
-    if chat_id:
-        conn.execute(
-            "UPDATE chats SET title=?, messages=? WHERE id=?",
-            (title, data, chat_id)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL
         )
-    else:
-        cur = conn.execute(
-            "INSERT INTO chats (title, messages) VALUES (?, ?)",
-            (title, data)
+    """)
+    con.commit()
+    return con
+
+def hash_password(password, salt):
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode(),
+        bytes.fromhex(salt),
+        200000
+    ).hex()
+
+def signup(username, password):
+    username = username.strip().lower()
+
+    if len(username) < 3 or len(password) < 8:
+        return False, "Username कम से कम 3 और password 8 characters का होना चाहिए।"
+
+    salt = secrets.token_hex(16)
+    hashed = hash_password(password, salt)
+
+    con = database()
+
+    try:
+        con.execute(
+            "INSERT INTO users VALUES (?, ?, ?)",
+            (username, salt, hashed)
         )
-        chat_id = cur.lastrowid
+        con.commit()
+        return True, "Account created!"
+    except sqlite3.IntegrityError:
+        return False, "Username पहले से मौजूद है।"
+    finally:
+        con.close()
 
-    conn.commit()
-    conn.close()
-    return chat_id
+def login(username, password):
+    con = database()
 
-def get_chats():
-    conn = sqlite3.connect(DB_FILE)
-    rows = conn.execute(
-        "SELECT id, title, messages FROM chats ORDER BY id DESC"
+    row = con.execute(
+        "SELECT salt, password_hash FROM users WHERE username=?",
+        (username.strip().lower(),)
+    ).fetchone()
+
+    con.close()
+
+    if not row:
+        return False
+
+    return secrets.compare_digest(
+        hash_password(password, row[0]),
+        row[1]
+    )
+
+def save_message(username, role, content):
+    if username == "guest":
+        return
+
+    con = database()
+
+    con.execute(
+        "INSERT INTO messages (username, role, content) VALUES (?, ?, ?)",
+        (username, role, content)
+    )
+
+    con.commit()
+    con.close()
+
+def load_messages(username):
+    if username == "guest":
+        return []
+
+    con = database()
+
+    rows = con.execute(
+        "SELECT role, content FROM messages WHERE username=? ORDER BY id",
+        (username,)
     ).fetchall()
-    conn.close()
-    return rows
 
-init_db()
+    con.close()
+
+    return [
+        {"role": role, "content": content}
+        for role, content in rows
+    ]
 
 # =========================================
-# SESSION STATE
+# SESSION
 # =========================================
 
 defaults = {
+    "authenticated": False,
+    "username": None,
     "messages": [],
-    "chat_id": None,
     "client": None,
-    "voice_enabled": True,
-    "last_provider": "Not connected",
-    "pending_files": []
+    "last_provider": "Not used yet"
 }
 
 for key, value in defaults.items():
@@ -99,23 +156,77 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 # =========================================
-# AI ENGINE
+# DESIGN
+# =========================================
+
+st.markdown("""
+<style>
+.stApp {
+    background: linear-gradient(
+        135deg, #080817, #11112b, #080817
+    );
+    color: white;
+}
+
+[data-testid="stSidebar"] {
+    background: #101026;
+    border-right: 1px solid #29294f;
+}
+
+h1, h2, h3 {
+    color: #a78bfa !important;
+}
+
+.stButton button {
+    background: linear-gradient(90deg, #7c3aed, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: bold;
+}
+
+[data-testid="stChatMessage"] {
+    background: #15152e;
+    border: 1px solid #29294f;
+    border-radius: 14px;
+}
+
+.hero {
+    padding: 22px;
+    border-radius: 18px;
+    background: linear-gradient(
+        120deg, #171735, #252052, #10244b
+    );
+    border: 1px solid #454078;
+    margin-bottom: 20px;
+}
+
+.footer {
+    text-align: center;
+    color: #8888aa;
+    padding: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================
+# GEMINI ENGINE
 # =========================================
 
 def get_client():
-    if not API_KEY:
-        raise ValueError(
-            "GEMINI_API_KEY नहीं मिली। अपनी .env फाइल चेक करें।"
-        )
+
+    if not GEMINI_KEY:
+        raise ValueError("GEMINI_API_KEY missing in .env")
 
     if st.session_state.client is None:
         st.session_state.client = genai.Client(
-            api_key=API_KEY
+            api_key=GEMINI_KEY
         )
 
     return st.session_state.client
 
-def ask_ai(contents):
+def generate_answer(contents):
+
     client = get_client()
 
     answer, provider = generate_with_autopilot(
@@ -125,410 +236,611 @@ def ask_ai(contents):
     )
 
     st.session_state.last_provider = provider
+
     return answer
 
 # =========================================
-# DESIGN
+# FINNHUB API ENGINE
 # =========================================
 
-st.markdown("""
-<style>
-#MainMenu, footer, header {
-    visibility: hidden;
-}
+FINNHUB_BASE = "https://finnhub.io/api/v1"
 
-.stApp {
-    background: #212121;
-    color: #f5f5f5;
-}
+def finnhub_get(endpoint, params=None):
 
-[data-testid="stSidebar"] {
-    background: #171717;
-    border-right: 1px solid #333;
-}
+    if not FINNHUB_KEY:
+        raise ValueError(
+            "FINNHUB_API_KEY तुम्हारी .env फाइल में नहीं मिली।"
+        )
 
-[data-testid="stSidebar"] * {
-    color: #eeeeee !important;
-}
+    headers = {
+        "X-Finnhub-Token": FINNHUB_KEY
+    }
 
-h1, h2, h3 {
-    color: #f5f5f5;
-}
+    response = requests.get(
+        FINNHUB_BASE + endpoint,
+        params=params or {},
+        headers=headers,
+        timeout=15
+    )
 
-.stChatMessage {
-    border-radius: 16px;
-}
+    if response.status_code == 429:
+        raise RuntimeError(
+            "Finnhub API rate limit पूरी हो गई। थोड़ी देर बाद कोशिश करो।"
+        )
 
-[data-testid="stChatMessage"] {
-    background: transparent;
-    border: none;
-}
+    response.raise_for_status()
 
-.stChatInput textarea {
-    background: #303030 !important;
-    color: white !important;
-}
+    return response.json()
 
-.stButton button {
-    border-radius: 12px;
-    border: 1px solid #444;
-    background: #303030;
-    color: white;
-}
+@st.cache_data(ttl=30, show_spinner=False)
+def get_stock_quote(symbol):
 
-.stButton button:hover {
-    border-color: #999;
-    color: white;
-}
+    return finnhub_get(
+        "/quote",
+        {"symbol": symbol}
+    )
 
-.hero {
-    text-align: center;
-    padding: 45px 10px 25px;
-}
+@st.cache_data(ttl=300, show_spinner=False)
+def get_company_profile(symbol):
 
-.hero h1 {
-    font-size: 36px;
-    font-weight: 700;
-}
+    return finnhub_get(
+        "/stock/profile2",
+        {"symbol": symbol}
+    )
 
-.hero p {
-    color: #aaa;
-    font-size: 15px;
-}
+@st.cache_data(ttl=120, show_spinner=False)
+def get_market_news():
 
-.small-status {
-    color: #aaa;
-    font-size: 12px;
-}
+    return finnhub_get(
+        "/news",
+        {"category": "general"}
+    )
 
-div[data-testid="stFileUploader"] {
-    background: #292929;
-    border-radius: 12px;
-    padding: 8px;
-}
+# =========================================
+# AUTHENTICATION
+# =========================================
 
-</style>
-""", unsafe_allow_html=True)
+def authentication_screen():
+
+    st.markdown("""
+    <div class="hero">
+        <h1 style="text-align:center;">🚀 NEXTGEN AI</h1>
+        <h3 style="text-align:center;">
+            One Platform. Endless Possibilities.
+        </h3>
+        <p style="text-align:center;">
+            Your Personal AI Universe
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _, center, _ = st.columns([1, 2, 1])
+
+    with center:
+
+        option = st.radio(
+            "Choose Access",
+            ["Guest Mode", "Sign Up", "Login"],
+            horizontal=True
+        )
+
+        if option == "Guest Mode":
+
+            st.info("Guest chats स्थायी रूप से सेव नहीं होंगी।")
+
+            if st.button("Continue as Guest"):
+                st.session_state.authenticated = True
+                st.session_state.username = "guest"
+                st.session_state.messages = []
+                st.rerun()
+
+        elif option == "Sign Up":
+
+            st.subheader("Create Account")
+
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            confirm = st.text_input("Confirm Password", type="password")
+
+            if st.button("Create Account"):
+
+                if password != confirm:
+                    st.error("Passwords match नहीं करते।")
+                else:
+                    success, message = signup(username, password)
+
+                    if success:
+                        st.success(message)
+                        st.info("अब Login विकल्प चुनो।")
+                    else:
+                        st.error(message)
+
+        else:
+
+            st.subheader("Welcome Back")
+
+            username = st.text_input("Username", key="login_user")
+            password = st.text_input(
+                "Password",
+                type="password",
+                key="login_password"
+            )
+
+            if st.button("Login"):
+
+                if login(username, password):
+
+                    st.session_state.authenticated = True
+                    st.session_state.username = username.strip().lower()
+                    st.session_state.messages = load_messages(
+                        st.session_state.username
+                    )
+
+                    st.rerun()
+
+                else:
+                    st.error("Wrong username or password.")
+
+if not st.session_state.authenticated:
+    authentication_screen()
+    st.stop()
 
 # =========================================
 # SIDEBAR
 # =========================================
 
-with st.sidebar:
+st.sidebar.markdown("# 🚀 NEXTGEN AI")
+st.sidebar.caption("YOUR CREATIVE UNIVERSE")
 
-    st.markdown("# 🚀 NEXTGEN AI")
-    st.caption("One Platform. Endless Possibilities.")
+st.sidebar.markdown("---")
 
-    st.markdown("---")
+st.sidebar.success(
+    f"User: {st.session_state.username}"
+)
 
-    if st.button("＋ New Chat", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.chat_id = None
-        st.rerun()
+page = st.sidebar.radio(
+    "NAVIGATION",
+    [
+        "AI Chat",
+        "Stock Market",
+        "AI Vision",
+        "PDF Assistant",
+        "Voice Studio",
+        "AI Image",
+        "AI Video",
+        "About"
+    ]
+)
 
-    page = st.radio(
-        "WORKSPACE",
-        [
-            "AI Chat",
-            "AI Vision",
-            "PDF Assistant",
-            "Coding School",
-            "Coding Assistant",
-            "Website Builder",
-            "Image Studio",
-            "Video Studio",
-            "Settings"
-        ],
-        label_visibility="visible"
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("### SYSTEM STATUS")
+
+st.sidebar.write(
+    "Gemini:",
+    "🟢 Connected" if GEMINI_KEY else "🔴 Missing"
+)
+
+st.sidebar.write(
+    "Finnhub:",
+    "🟢 Configured" if FINNHUB_KEY else "🔴 Missing"
+)
+
+st.sidebar.caption(
+    f"Last AI Provider: {st.session_state.last_provider}"
+)
+
+if st.sidebar.button("Clear Chat History"):
+
+    st.session_state.messages = []
+
+    if st.session_state.username != "guest":
+        con = database()
+        con.execute(
+            "DELETE FROM messages WHERE username=?",
+            (st.session_state.username,)
+        )
+        con.commit()
+        con.close()
+
+    st.rerun()
+
+if st.sidebar.button("Logout"):
+
+    st.session_state.authenticated = False
+    st.session_state.username = None
+    st.session_state.messages = []
+    st.session_state.client = None
+
+    st.rerun()
+
+# =========================================
+# MAIN HEADER
+# =========================================
+
+st.markdown("""
+<div class="hero">
+    <h1>🚀 NEXTGEN AI</h1>
+    <h3>One Platform. Endless Possibilities.</h3>
+    <p>Your intelligent AI universe.</p>
+</div>
+""", unsafe_allow_html=True)
+
+# =========================================
+# CHAT PROCESSOR
+# =========================================
+
+def process_chat(prompt, uploaded_file=None):
+
+    user_content = prompt or "Please analyze the attached file."
+
+    if uploaded_file:
+        user_content += f"\n[File: {uploaded_file.name}]"
+
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_content
+    })
+
+    save_message(
+        st.session_state.username,
+        "user",
+        user_content
     )
 
-    st.markdown("---")
-    st.markdown("### Recent Chats")
+    contents = [
+        "You are NEXTGEN AI, a helpful and accurate AI assistant. "
+        "Use the user's language. Never claim to have generated "
+        "a file or image unless it was actually generated."
+    ]
 
-    for chat in get_chats()[:12]:
-        chat_id, title, messages_json = chat
+    for msg in st.session_state.messages[-12:]:
+        contents.append(
+            f'{msg["role"].upper()}: {msg["content"]}'
+        )
 
-        if st.button(
-            title[:30] if title else "New Chat",
-            key=f"chat_{chat_id}",
-            use_container_width=True
+    if uploaded_file:
+
+        file_bytes = uploaded_file.getvalue()
+        filename = uploaded_file.name.lower()
+
+        if filename.endswith(
+            (".png", ".jpg", ".jpeg", ".webp")
         ):
-            st.session_state.chat_id = chat_id
-            st.session_state.messages = json.loads(messages_json)
-            st.session_state.page = "AI Chat"
-            st.rerun()
+            contents.append(
+                Image.open(io.BytesIO(file_bytes))
+            )
 
-    st.markdown("---")
+        elif filename.endswith(".pdf"):
 
-    if API_KEY:
-        st.success("AI Engine: Connected")
-    else:
-        st.error("API Key Missing")
+            reader = PdfReader(io.BytesIO(file_bytes))
 
-    st.caption(
-        f"Last AI Provider: {st.session_state.last_provider}"
+            pdf_text = "\n".join(
+                page.extract_text() or ""
+                for page in reader.pages
+            )
+
+            contents.append(
+                "PDF CONTENT:\n" + pdf_text[:30000]
+            )
+
+        elif filename.endswith(".txt"):
+
+            contents.append(
+                file_bytes.decode("utf-8", errors="replace")[:30000]
+            )
+
+    try:
+        with st.spinner("NEXTGEN AI is thinking..."):
+            answer = generate_answer(contents)
+
+    except Exception as error:
+        answer = f"AI Error: {error}"
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer
+    })
+
+    save_message(
+        st.session_state.username,
+        "assistant",
+        answer
     )
-# ==========================================
-# NEXTGEN AI
-# ==========================================
+
+# =========================================
+# AI CHAT
+# =========================================
 
 if page == "AI Chat":
 
-    st.markdown("""
-    <style>
-    .stApp {
-        background: #212121;
-        color: #ffffff;
-    }
+    st.header("💬 AI Chat")
 
-    [data-testid="stSidebar"] {
-        background: #171717;
-    }
-
-    [data-testid="stChatMessage"] {
-        background: transparent;
-        border: none;
-        padding: 12px;
-    }
-
-    .chat-title {
-        text-align: center;
-        padding: 35px 10px 25px;
-    }
-
-    .chat-title h1 {
-        color: #ffffff !important;
-        font-size: 32px;
-    }
-
-    .chat-title p {
-        color: #aaaaaa;
-    }
-
-    </style>
-    """, unsafe_allow_html=True)
-
-    if not st.session_state.messages:
-
-        st.markdown("""
-        <div class="chat-title">
-            <h1>🚀 NEXTGEN AI</h1>
-            <p>What can I help you with today?</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.write("")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.button(
-                "💡 Explain something",
-                use_container_width=True
-            )
-            st.button(
-                "💻 Help me code",
-                use_container_width=True
-            )
-
-        with col2:
-            st.button(
-                "✍️ Write something",
-                use_container_width=True
-            )
-            st.button(
-                "📚 Help me study",
-                use_container_width=True
-            )
-
-    # Conversation history
     for msg in st.session_state.messages:
 
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-            if msg["role"] == "assistant":
-
-                speech_text = json.dumps(
-                    msg["content"],
-                    ensure_ascii=False
-                )
-
-                components.html(
-                    f"""
-                    <button onclick="
-                    const u = new SpeechSynthesisUtterance({speech_text});
-                    u.lang = 'hi-IN';
-                    speechSynthesis.cancel();
-                    speechSynthesis.speak(u);
-                    " style="
-                    background:#303030;
-                    color:white;
-                    border:1px solid #555;
-                    border-radius:20px;
-                    padding:7px 15px;
-                    cursor:pointer;">
-                    🔊 Listen
-                    </button>
-                    """,
-                    height=45
-                )
-
-    # Attachments
-    with st.expander("＋ Attach files and images"):
-
-        uploaded_files = st.file_uploader(
-            "Upload your files",
-            type=[
-                "png", "jpg", "jpeg", "webp",
-                "pdf", "txt", "py", "js",
-                "html", "css", "csv"
-            ],
-            accept_multiple_files=True,
-            key="chat_uploads"
-        )
-
-    # Microphone input
-    with st.expander("🎙️ Talk to NEXTGEN AI"):
-
-        audio = st.audio_input(
-            "Record your question",
-            key="chat_audio"
-        )
-
-    # Message box
-    prompt = st.chat_input(
-        "Message NEXTGEN AI..."
+    uploaded_file = st.file_uploader(
+        "➕ Attach image, PDF or text file",
+        type=["png", "jpg", "jpeg", "webp", "pdf", "txt"],
+        key="chat_file"
     )
 
-    if prompt or audio:
+    prompt = st.chat_input("Message NEXTGEN AI...")
 
-        user_text = prompt or "Please listen to my audio and answer."
+    if prompt or uploaded_file:
 
-        st.session_state.messages.append({
-            "role": "user",
-            "content": user_text
-        })
-
-        with st.chat_message("user"):
-            st.markdown(user_text)
-
-        contents = [
-            """
-            You are NEXTGEN AI, an intelligent and friendly
-            AI assistant. Respond naturally like a conversational
-            assistant. Use the user's language. Give clear,
-            accurate and helpful answers.
-            """
-        ]
-
-        # Previous conversation
-        for msg in st.session_state.messages[-12:]:
-
-            contents.append(
-                f'{msg["role"].upper()}: {msg["content"]}'
-            )
-
-        # Uploaded files
-        for file in uploaded_files or []:
-
-            raw = file.getvalue()
-            mime = file.type or ""
-
-            if mime.startswith("image/"):
-
-                contents.append(
-                    types.Part.from_bytes(
-                        data=raw,
-                        mime_type=mime
-                    )
-                )
-
-            elif mime == "application/pdf":
-
-                reader = PdfReader(io.BytesIO(raw))
-
-                pdf_text = "\n".join(
-                    p.extract_text() or ""
-                    for p in reader.pages
-                )
-
-                contents.append(
-                    f"PDF FILE: {file.name}\n{pdf_text[:20000]}"
-                )
-
-            else:
-
-                contents.append(
-                    f"FILE: {file.name}\n"
-                    + raw.decode(
-                        "utf-8",
-                        errors="replace"
-                    )[:12000]
-                )
-
-        # Audio
-        if audio is not None:
-
-            contents.append(
-                types.Part.from_bytes(
-                    data=audio.getvalue(),
-                    mime_type=audio.type or "audio/wav"
-                )
-            )
-
-            contents.append(
-                "Understand the user's spoken question "
-                "and answer it naturally."
-            )
-
-        with st.chat_message("assistant"):
-
-            try:
-
-                with st.spinner("NEXTGEN AI is thinking..."):
-
-                    answer = generate_answer(contents)
-
-                st.markdown(answer)
-
-                speech_text = json.dumps(
-                    answer,
-                    ensure_ascii=False
-                )
-
-                components.html(
-                    f"""
-                    <button onclick="
-                    const u = new SpeechSynthesisUtterance({speech_text});
-                    u.lang = 'hi-IN';
-                    speechSynthesis.cancel();
-                    speechSynthesis.speak(u);
-                    " style="
-                    background:#303030;
-                    color:white;
-                    border:1px solid #555;
-                    border-radius:20px;
-                    padding:8px 16px;
-                    cursor:pointer;">
-                    🔊 Listen to response
-                    </button>
-                    """,
-                    height=45
-                )
-
-            except Exception as e:
-
-                answer = f"AI Error: {e}"
-                st.error(answer)
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": answer
-        })
+        process_chat(
+            prompt,
+            uploaded_file
+        )
 
         st.rerun()
 
+# =========================================
+# STOCK MARKET CENTER
+# =========================================
+
+elif page == "Stock Market":
+
+    st.header("📈 NEXTGEN Stock Market Center")
+
+    st.caption(
+        "Market data powered by Finnhub"
+    )
+
+    if not FINNHUB_KEY:
+
+        st.error(
+            "FINNHUB_API_KEY नहीं मिली। .env में API key जोड़ो।"
+        )
+
+    else:
+
+        st.success("Finnhub API configured")
+
+        symbol = st.text_input(
+            "Enter Stock Symbol",
+            value="AAPL",
+            help="उदाहरण: AAPL, MSFT, NVDA या तुम्हारा समर्थित Finnhub symbol"
+        ).strip().upper()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🔍 Get Stock Data"):
+                st.session_state["selected_stock"] = symbol
+
+        with col2:
+            if st.button("🔄 Refresh Data"):
+                get_stock_quote.clear()
+                get_company_profile.clear()
+                st.session_state["selected_stock"] = symbol
+
+        selected = st.session_state.get(
+            "selected_stock",
+            symbol
+        )
+
+        if selected:
+
+            try:
+
+                with st.spinner("Fetching Finnhub market data..."):
+
+                    quote = get_stock_quote(selected)
+                    profile = get_company_profile(selected)
+
+                if not quote or quote.get("c") is None:
+                    st.warning(
+                        "इस symbol का quote उपलब्ध नहीं है। Symbol जाँचो।"
+                    )
+
+                else:
+
+                    company_name = profile.get(
+                        "name",
+                        selected
+                    )
+
+                    st.subheader(
+                        f"{company_name} ({selected})"
+                    )
+
+                    price = quote.get("c", 0)
+                    change = quote.get("d", 0)
+                    change_percent = quote.get("dp", 0)
+
+                    currency = profile.get("currency", "USD")
+
+                    c1, c2, c3 = st.columns(3)
+
+                    c1.metric(
+                        "Current Price",
+                        f"{currency} {price:,.2f}",
+                        f"{change:,.2f}"
+                    )
+
+                    c2.metric(
+                        "Change %",
+                        f"{change_percent:.2f}%"
+                    )
+
+                    c3.metric(
+                        "Previous Close",
+                        f"{currency} {quote.get('pc', 0):,.2f}"
+                    )
+
+                    st.markdown("### Today's Quote")
+
+                    quote_table = pd.DataFrame({
+                        "Metric": [
+                            "Open",
+                            "Day High",
+                            "Day Low",
+                            "Previous Close",
+                            "Current Price"
+                        ],
+                        "Value": [
+                            quote.get("o"),
+                            quote.get("h"),
+                            quote.get("l"),
+                            quote.get("pc"),
+                            quote.get("c")
+                        ]
+                    })
+
+                    st.dataframe(
+                        quote_table,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    st.markdown("### Company Information")
+
+                    p1, p2 = st.columns(2)
+
+                    with p1:
+                        st.write(
+                            "**Industry:**",
+                            profile.get("finnhubIndustry", "Not available")
+                        )
+                        st.write(
+                            "**Exchange:**",
+                            profile.get("exchange", "Not available")
+                        )
+
+                    with p2:
+                        st.write(
+                            "**Country:**",
+                            profile.get("country", "Not available")
+                        )
+                        st.write(
+                            "**Website:**",
+                            profile.get("weburl", "Not available")
+                        )
+
+                    st.caption(
+                        "Quote time is supplied by Finnhub. "
+                        "Market prices may be delayed or unavailable "
+                        "depending on the API plan and exchange."
+                    )
+
+                    st.markdown("### 🤖 AI Stock Explanation")
+
+                    if st.button("Ask AI to Explain This Stock"):
+
+                        try:
+
+                            analysis_data = f"""
+                            Company: {company_name}
+                            Symbol: {selected}
+                            Current price: {price}
+                            Change: {change}
+                            Change percent: {change_percent}
+                            Previous close: {quote.get('pc')}
+                            Day high: {quote.get('h')}
+                            Day low: {quote.get('l')}
+                            Industry: {profile.get('finnhubIndustry')}
+
+                            Explain these figures in simple language.
+                            Mention limitations and uncertainty.
+                            Do not promise returns or make guaranteed predictions.
+                            This is educational information, not investment advice.
+                            """
+
+                            with st.spinner("AI is explaining..."):
+                                answer = generate_answer(analysis_data)
+
+                            st.markdown(answer)
+
+                        except Exception as error:
+                            st.error(str(error))
+
+            except Exception as error:
+                st.error(f"Finnhub Error: {error}")
+
+        st.markdown("---")
+        st.subheader("🌍 General Market News")
+
+        if st.button("Load Latest Market News"):
+
+            try:
+
+                news = get_market_news()
+
+                if not news:
+                    st.info("No news returned.")
+
+                for item in news[:10]:
+
+                    st.markdown(
+                        f"### {item.get('headline', 'Market News')}"
+                    )
+
+                    st.write(
+                        item.get("summary", "No summary available.")
+                    )
+
+                    if item.get("url"):
+                        st.markdown(
+                            f"[Read Article]({item['url']})"
+                        )
+
+                    st.caption(
+                        f"Source: {item.get('source', 'Unknown')}"
+                    )
+
+                    st.divider()
+
+            except Exception as error:
+                st.error(f"News Error: {error}")
+
+        st.warning(
+            "यह शैक्षिक stock information है। "
+            "यह guaranteed prediction या खरीदने-बेचने की सलाह नहीं है।"
+        )
+
+# =========================================
+# AI VISION
+# =========================================
+
+elif page == "AI Vision":
+
+    st.header("👁️ AI Vision")
+
+    uploaded_image = st.file_uploader(
+        "Upload Image",
+        type=["png", "jpg", "jpeg", "webp"]
+    )
+
+    question = st.text_input(
+        "What should AI analyze?"
+    )
+
+    if uploaded_image:
+
+        image = Image.open(uploaded_image)
+
+        st.image(
+            image,
+            use_container_width=True
+        )
+
+        if st.button("Analyze Image"):
+
+            try:
+
+                answer = generate_answer([
+                    question or "Describe this image.",
+                    image
+                ])
+
+                st.markdown(answer)
+
+            except Exception as error:
+                st.error(str(error))
 
 # =========================================
 # PDF ASSISTANT
@@ -536,292 +848,183 @@ if page == "AI Chat":
 
 elif page == "PDF Assistant":
 
-    st.title("📄 PDF Assistant")
+    st.header("📄 PDF Assistant")
 
-    pdf = st.file_uploader(
+    pdf_file = st.file_uploader(
         "Upload PDF",
         type=["pdf"]
     )
 
-    if pdf:
+    question = st.text_input(
+        "Ask about your PDF"
+    )
+
+    if pdf_file and st.button("Ask AI"):
+
         try:
-            reader = PdfReader(pdf)
-            text = "\n".join(
-                p.extract_text() or ""
-                for p in reader.pages
+
+            reader = PdfReader(pdf_file)
+
+            pdf_text = "\n".join(
+                page.extract_text() or ""
+                for page in reader.pages
             )
 
-            st.success(
-                f"Loaded {len(reader.pages)} pages"
-            )
+            if not pdf_text.strip():
+                st.warning("No readable text found.")
 
-            question = st.text_input(
-                "Ask a question about this PDF"
-            )
+            else:
 
-            if st.button("Ask PDF Assistant"):
-                if question.strip():
-                    answer = ask_ai(
-                        "Use only this PDF content. "
-                        "If the answer is missing, say so.\n\n"
-                        + text[:40000]
-                        + "\n\nQuestion: "
-                        + question
-                    )
-                    st.markdown(answer)
+                answer = generate_answer(
+                    "Answer from this PDF:\n"
+                    + pdf_text[:40000]
+                    + "\nQuestion: "
+                    + question
+                )
 
-        except Exception as e:
-            st.error(f"PDF Error: {e}")
-
-# =========================================
-# CODING SCHOOL
-# =========================================
-
-elif page == "Coding School":
-
-    st.title("🎓 NEXTGEN Coding School")
-    st.write(
-        "Learn programming from beginner to advanced level."
-    )
-
-    languages = [
-        "Python", "JavaScript", "HTML",
-        "CSS", "C", "C++", "Java", "SQL"
-    ]
-
-    language = st.selectbox(
-        "Choose a programming language",
-        languages
-    )
-
-    level = st.selectbox(
-        "Choose your level",
-        ["Beginner", "Intermediate", "Advanced"]
-    )
-
-    topic = st.text_input(
-        "What do you want to learn?",
-        placeholder="Example: Variables, Loops, Functions"
-    )
-
-    learning_mode = st.selectbox(
-        "Learning mode",
-        [
-            "Detailed Lesson",
-            "Practice Questions",
-            "Quiz",
-            "Mini Project",
-            "Explain My Mistakes"
-        ]
-    )
-
-    if st.button("Start Learning"):
-        if not topic.strip():
-            st.warning("Enter a topic first.")
-        else:
-            instruction = f"""
-You are NEXTGEN Coding School, a patient programming teacher.
-
-Teach {language}.
-Student level: {level}.
-Topic: {topic}.
-Mode: {learning_mode}.
-
-Rules:
-1. Explain from the correct difficulty level.
-2. Use simple language.
-3. Give examples and code.
-4. Explain each important line.
-5. For quizzes, give questions and wait for answers.
-6. For projects, give requirements and steps.
-7. Never pretend code was executed if it was not.
-"""
-            try:
-                with st.spinner("Preparing your lesson..."):
-                    answer = ask_ai(instruction)
                 st.markdown(answer)
-            except Exception as e:
-                st.error(str(e))
+
+        except Exception as error:
+            st.error(str(error))
 
 # =========================================
-# CODING ASSISTANT
+# VOICE STUDIO
 # =========================================
 
-elif page == "Coding Assistant":
+elif page == "Voice Studio":
 
-    st.title("💻 Coding Assistant")
+    st.header("🎙️ Voice Studio")
 
-    language = st.selectbox(
-        "Programming language",
-        [
-            "Python", "JavaScript", "HTML",
-            "CSS", "C", "C++", "Java", "SQL"
-        ]
+    st.info(
+        "यहाँ recorded audio को AI तक भेज सकते हो। "
+        "Continuous Live Voice अभी अलग integration माँगता है।"
     )
 
-    task = st.text_area(
-        "Describe your coding problem or paste your code"
-    )
+    audio = st.audio_input("Record your voice")
 
-    if st.button("Help Me Code"):
-        if task.strip():
-            try:
-                answer = ask_ai(
-                    f"""
-Act as a careful {language} programming assistant.
-Explain the solution, provide corrected code,
-and describe common mistakes.
+    if audio and st.button("Send to AI"):
 
-User request:
-{task}
-"""
-                )
-                st.markdown(answer)
-            except Exception as e:
-                st.error(str(e))
+        try:
+
+            audio_part = types.Part.from_bytes(
+                data=audio.getvalue(),
+                mime_type=audio.type or "audio/wav"
+            )
+
+            answer = generate_answer([
+                "Listen to the audio and respond to the user.",
+                audio_part
+            ])
+
+            st.markdown(answer)
+
+        except Exception as error:
+            st.error(str(error))
 
 # =========================================
-# WEBSITE BUILDER
+# AI IMAGE
 # =========================================
 
-elif page == "Website Builder":
+elif page == "AI Image":
 
-    st.title("🌐 NEXTGEN Website Builder")
+    st.header("🎨 AI Image Studio")
 
-    idea = st.text_area(
-        "Describe the website you want to build"
+    st.info(
+        "Image generation service अभी connected नहीं है।"
     )
 
-    if st.button("Generate Website Code"):
-        if idea.strip():
-            try:
-                answer = ask_ai(
-                    "Create a responsive website using HTML, CSS "
-                    "and JavaScript. Return complete code with "
-                    "separate clearly labelled sections.\n\n"
-                    + idea
-                )
-                st.code(answer, language="html")
-            except Exception as e:
-                st.error(str(e))
+    prompt = st.text_area("Describe your image")
+
+    if st.button("Improve Image Prompt") and prompt.strip():
+
+        try:
+
+            answer = generate_answer(
+                "Create a detailed image-generation prompt for: "
+                + prompt
+            )
+
+            st.markdown(answer)
+
+        except Exception as error:
+            st.error(str(error))
 
 # =========================================
-# IMAGE STUDIO
+# AI VIDEO
 # =========================================
 
-elif page == "Image Studio":
+elif page == "AI Video":
 
-    st.title("🎨 Image Studio")
+    st.header("🎬 AI Video Studio")
 
-    prompt = st.text_area(
-        "Describe the image you want to create"
+    st.info(
+        "Video generation API अभी connected नहीं है।"
     )
 
-    if st.button("Create Image Prompt"):
-        if prompt.strip():
-            try:
-                result = ask_ai(
-                    "Create a detailed professional image-generation "
-                    "prompt. Include subject, setting, lighting, "
-                    "composition, camera and style.\n\n"
-                    + prompt
-                )
-                st.text_area(
-                    "Your Image Generation Prompt",
-                    result,
-                    height=220
-                )
-                st.info(
-                    "यह अभी prompt generator है। वास्तविक image "
-                    "rendering के लिए image-generation API जोड़नी होगी।"
-                )
-            except Exception as e:
-                st.error(str(e))
+    prompt = st.text_area("Describe your video")
+
+    if st.button("Create Video Script") and prompt.strip():
+
+        try:
+
+            answer = generate_answer(
+                "Create a scene-by-scene video script for: "
+                + prompt
+            )
+
+            st.markdown(answer)
+
+        except Exception as error:
+            st.error(str(error))
 
 # =========================================
-# VIDEO STUDIO
+# ABOUT
 # =========================================
 
-elif page == "Video Studio":
+elif page == "About":
 
-    st.title("🎬 Video Studio")
+    st.header("🌍 About NEXTGEN AI")
 
-    idea = st.text_area(
-        "Describe your video idea"
-    )
+    st.markdown("""
+    ## NEXTGEN AI
 
-    duration = st.selectbox(
-        "Video duration",
-        ["10 seconds", "20 seconds", "30 seconds", "60 seconds"]
-    )
+    One Platform. Endless Possibilities.
 
-    if st.button("Create Video Storyboard"):
-        if idea.strip():
-            try:
-                result = ask_ai(
-                    f"""
-Create a professional video storyboard.
-Duration: {duration}.
-Include scenes, visual prompts, camera movements,
-voiceover and background music suggestions.
+    ### Features
 
-Idea:
-{idea}
-"""
-                )
-                st.markdown(result)
-                st.info(
-                    "यह storyboard generator है। वास्तविक video "
-                    "rendering के लिए video-generation API चाहिए।"
-                )
-            except Exception as e:
-                st.error(str(e))
+    - AI Chat
+    - Guest Mode
+    - Sign Up and Login
+    - Chat History
+    - AI Vision
+    - PDF Assistant
+    - Voice Recording Input
+    - Finnhub Stock Market Data
+    - Gemini AI
+    - Auto-Pilot Retry System
 
-# =========================================
-# SETTINGS
-# =========================================
+    ### Upcoming Integrations
 
-elif page == "Settings":
-
-    st.title("⚙️ Settings")
-
-    st.write("NEXTGEN AI configuration")
-
-    st.write(
-        "AI Provider: Google Gemini + Auto-Pilot"
-    )
-
-    st.write(
-        "Current model: " + MODEL
-    )
-
-    st.write(
-        "API Key Status: "
-        + ("Configured" if API_KEY else "Missing")
-    )
-
-    st.checkbox(
-        "Enable voice response",
-        key="voice_enabled"
-    )
-
-    if st.button("Clear Current Conversation"):
-        st.session_state.messages = []
-        st.session_state.chat_id = None
-        st.rerun()
-
-    st.caption(
-        "NEXTGEN AI | One Platform. Endless Possibilities."
-    )
+    - Continuous Live Voice
+    - AI Image Generation
+    - AI Video Generation
+    - Website Builder
+    - App Builder
+    - AI Creator
+    - Coding School
+    - Advanced Finance Dashboard
+    """)
 
 # =========================================
 # FOOTER
 # =========================================
 
 st.markdown("---")
-st.markdown(
-    "<center style='color:#888'>"
-    "NEXTGEN AI © 2026 | Powered by AI"
-    "</center>",
-    unsafe_allow_html=True
-)
+
+st.markdown("""
+<div class="footer">
+    NEXTGEN AI © 2026
+    <br>
+    Powered by Artificial Intelligence
+</div>
+""", unsafe_allow_html=True)

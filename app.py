@@ -977,6 +977,88 @@ elif page == "AI Video":
         except Exception as error:
             st.error(str(error))
 
+AI_STUDIOS = {
+    "🚀 AI Development Studio": [
+        "AI Coding Studio", "AI Website Builder", "AI Android App Builder",
+        "AI School App Builder", "AI Game Builder", "Database Builder",
+        "AI Bug Fixer", "API Generator", "UI/UX Designer", "Code Converter"
+    ],
+    "🧠 AI Intelligence Center": [
+        "AI Research Assistant", "AI Web Search", "AI Deep Research",
+        "AI Memory Planner", "AI Personality Modes", "AI Math Solver",
+        "AI Science Assistant", "AI Language Translator", "AI Fact Checker",
+        "AI Question Generator"
+    ],
+    "🎨 AI Creative Studio": [
+        "AI Logo Maker", "AI Thumbnail Maker", "AI Poster Designer",
+        "AI Story Generator", "AI Comic Creator", "AI Music Idea Studio",
+        "AI Voice Script Generator", "AI Presentation Maker",
+        "AI Video Script Editor", "AI Social Media Manager"
+    ],
+    "🎓 AI Student Hub": [
+        "AI Homework Helper", "AI Notes Maker", "AI Quiz Generator",
+        "AI Flashcard Maker", "AI Timetable Planner", "AI Exam Preparation",
+        "AI PDF to Notes", "AI Doubt Solver", "AI Dictionary",
+        "AI Learning Roadmap"
+    ],
+    "⚡ AI Productivity Center": [
+        "AI Email Writer", "AI Resume Builder", "AI Document Editor",
+        "AI Spreadsheet Assistant", "AI PDF Helper", "AI Meeting Summarizer",
+        "AI To-Do Planner", "AI Calendar Planner",
+        "AI Mind Map Generator", "AI File Organizer"
+    ]
+}
+
+def show_ai_studio():
+    st.markdown("## 🚀 NEXTGEN AI TOOL CENTER")
+    st.caption("One Platform. Endless Possibilities.")
+
+    studio = st.selectbox(
+        "Select AI Studio",
+        list(AI_STUDIOS.keys())
+    )
+
+    tool = st.selectbox(
+        "Select Your AI Tool",
+        AI_STUDIOS[studio]
+    )
+
+    user_task = st.text_area(
+        "What do you want NEXTGEN AI to do?",
+        placeholder="Write your task here..."
+    )
+
+    if st.button("🚀 Generate with AI", use_container_width=True):
+        if not user_task.strip():
+            st.warning("Please enter your task first.")
+        else:
+            prompt = f"""
+You are NEXTGEN AI, an intelligent AI assistant.
+
+Selected Studio: {studio}
+Selected Tool: {tool}
+
+User Task:
+{user_task}
+
+Give a useful, accurate and well-organized answer.
+Use headings and examples wherever helpful.
+If information is uncertain, clearly mention it.
+"""
+
+            with st.spinner("NEXTGEN AI is working..."):
+                try:
+                    result = generate_answer(prompt)
+
+                    if hasattr(result, "text"):
+                        result = result.text
+
+                    st.markdown("### ✨ AI Result")
+                    st.markdown(str(result))
+
+                except Exception as e:
+                    st.error(f"AI Error: {e}")
+
 # =========================================
 # ABOUT
 # =========================================

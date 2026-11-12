@@ -58,7 +58,7 @@ def generate_with_autopilot(client, model, contents, backup_func=None):
                 return backup_answer, "Backup AI"
         except Exception as error:
             print(f"Backup AI Error: {error}")
-
+   print("FINAL GEMINI STATUS:", status_code)
     raise RuntimeError(
         "AI is temporarily unavailable. Please try again."
     )

@@ -73,40 +73,46 @@ GEMINI_MODEL = "gemini-2.5-flash"
 # DATABASE
 # =====================================================
 
+import sqlite3
+from datetime import datetime
+
+DB_PATH = "nextgen_ai.db"
+
 def db():
-    return sqlite3.connect(DB, check_same_thread=False)
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
 def init_db():
     con = db()
-    cur = con.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users(
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            created_at TEXT
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
         )
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS conversations(
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            title TEXT,
+            user_id INTEGER NOT NULL,
+            title TEXT DEFAULT 'New Chat',
             created_at TEXT,
-            updated_at TEXT
+            updated_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS messages(
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conversation_id INTEGER,
-            role TEXT,
-            content TEXT,
-            created_at TEXT
+            conversation_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT,
+            FOREIGN KEY(conversation_id)
+                REFERENCES conversations(id)
         )
     """)
 
@@ -115,125 +121,6 @@ def init_db():
 
 
 init_db()
-
-
-def hash_password(password):
-    salt = secrets.token_hex(16)
-    value = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        salt.encode(),
-        200000
-    ).hex()
-    return salt + "$" + value
-
-
-def verify_password(password, stored):
-    try:
-        salt, hashed = stored.split("$")
-        value = hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode(),
-            salt.encode(),
-            200000
-        ).hex()
-        return secrets.compare_digest(value, hashed)
-    except Exception:
-        return False
-
-
-def register(username, password):
-    con = db()
-    try:
-        con.execute(
-            "INSERT INTO users(username,password,created_at) VALUES(?,?,?)",
-            (
-                username,
-                hash_password(password),
-                datetime.now().isoformat()
-            )
-        )
-        con.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        con.close()
-
-
-def authenticate(username, password):
-    con = db()
-    row = con.execute(
-        "SELECT id,password FROM users WHERE username=?",
-        (username,)
-    ).fetchone()
-    con.close()
-
-    if row and verify_password(password, row[1]):
-        return row[0]
-    return None
-
-
-def new_conversation(user_id, title="New Chat"):
-    con = db()
-    cur = con.execute("""
-        INSERT INTO conversations(user_id,title,created_at,updated_at)
-        VALUES(?,?,?,?)
-    """, (
-        user_id,
-        title,
-        datetime.now().isoformat(),
-        datetime.now().isoformat()
-    ))
-    cid = cur.lastrowid
-    con.commit()
-    con.close()
-    return cid
-
-
-def list_conversations(user_id):
-    con = db()
-    rows = con.execute("""
-        SELECT id,title,updated_at
-        FROM conversations
-        WHERE user_id=?
-        ORDER BY updated_at DESC
-    """, (user_id,)).fetchall()
-    con.close()
-    return rows
-
-
-def save_message(cid, role, content):
-    con = db()
-    con.execute("""
-        INSERT INTO messages(conversation_id,role,content,created_at)
-        VALUES(?,?,?,?)
-    """, (
-        cid,
-        role,
-        content,
-        datetime.now().isoformat()
-    ))
-    con.execute(
-        "UPDATE conversations SET updated_at=? WHERE id=?",
-        (datetime.now().isoformat(), cid)
-    )
-    con.commit()
-    con.close()
-
-
-def read_messages(cid):
-    con = db()
-    rows = con.execute("""
-        SELECT role,content
-        FROM messages
-        WHERE conversation_id=?
-        ORDER BY id
-    """, (cid,)).fetchall()
-    con.close()
-    return rows
-
-
 def delete_chat(cid):
     con = db()
     con.execute(
@@ -246,7 +133,6 @@ def delete_chat(cid):
     )
     con.commit()
     con.close()
-
 
 # =====================================================
 # SESSION

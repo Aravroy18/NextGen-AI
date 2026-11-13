@@ -1,22 +1,30 @@
+
+# ============================================================
+# NEXTGEN AI — PREMIUM AI WORKSPACE
+# Single-file Streamlit application
+# ============================================================
+
 import os
 import io
+import re
+import json
+import time
 import sqlite3
-from pathlib import Path
+import base64
+import hashlib
+from datetime import datetime
 
 import requests
 import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
 import streamlit.components.v1 as components
-
 from pypdf import PdfReader
 
-from voicecall import (
-    REALTIME_VOICES,
-    VOICES,
-    create_client_secret,
-    generate_speech
-)
 
-# ---------------- CONFIG ----------------
+# ============================================================
+# 1. APP CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="NEXTGEN AI",
@@ -25,415 +33,699 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-DB_PATH = Path(__file__).with_name("nextgen_ai.db")
+APP_NAME = "NEXTGEN AI"
+DB_FILE = "nextgen_ai.db"
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+TAVILY_URL = "https://api.tavily.com/search"
+FINNHUB_URL = "https://finnhub.io/api/v1"
+OPENAI_URL = "https://api.openai.com/v1"
+
+CHAT_MODEL = "openai/gpt-oss-120b"
+REALTIME_MODEL = "gpt-realtime"
+TTS_MODEL = "gpt-4o-mini-tts"
+TRANSCRIBE_MODEL = "whisper-large-v3"
+
+TTS_VOICES = [
+    "alloy", "ash", "ballad", "coral", "echo",
+    "fable", "nova", "onyx", "sage", "shimmer",
+    "verse", "marin", "cedar"
+]
+
+REALTIME_VOICES = [
+    "alloy", "ash", "ballad", "coral", "echo",
+    "sage", "shimmer", "verse", "marin", "cedar"
+]
 
 
-# ---------------- SECRETS ----------------
-
-def secret(name, default=""):
-    try:
-        value = st.secrets.get(name, default)
-        if value:
-            return str(value)
-    except Exception:
-        pass
-
-    return os.getenv(name, default)
-
-
-GROQ_API_KEY = secret("GROQ_API_KEY")
-OPENAI_API_KEY = secret("OPENAI_API_KEY")
-TAVILY_API_KEY = secret("TAVILY_API_KEY")
-
-
-# ---------------- DATABASE ----------------
-
-def db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-
-def init_db():
-    with db() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS ng_v2_chats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS ng_v2_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-
-init_db()
-
-
-def create_chat():
-    with db() as con:
-        cur = con.execute(
-            "INSERT INTO ng_v2_chats (title) VALUES (?)",
-            ("New conversation",)
-        )
-        return cur.lastrowid
-
-
-def save_message(chat_id, role, content):
-    with db() as con:
-        con.execute(
-            """
-            INSERT INTO ng_v2_messages
-            (chat_id, role, content)
-            VALUES (?, ?, ?)
-            """,
-            (chat_id, role, content)
-        )
-
-
-def get_chats():
-    with db() as con:
-        return con.execute(
-            """
-            SELECT id, title, created_at
-            FROM ng_v2_chats
-            ORDER BY id DESC
-            """
-        ).fetchall()
-
-
-def get_messages(chat_id):
-    with db() as con:
-        return con.execute(
-            """
-            SELECT role, content
-            FROM ng_v2_messages
-            WHERE chat_id = ?
-            ORDER BY id ASC
-            """,
-            (chat_id,)
-        ).fetchall()
-
-
-def update_title(chat_id, title):
-    title = title.strip().replace("\n", " ")[:55]
-
-    if not title:
-        return
-
-    with db() as con:
-        con.execute(
-            "UPDATE ng_v2_chats SET title=? WHERE id=?",
-            (title, chat_id)
-        )
-
-
-# ---------------- AI ENGINE ----------------
-
-def groq_chat(messages):
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing in Secrets.")
-
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "openai/gpt-oss-120b",
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 1800
-        },
-        timeout=90
-    )
-
-    if not response.ok:
-        raise RuntimeError(
-            f"Groq error {response.status_code}: "
-            f"{response.text[:600]}"
-        )
-
-    data = response.json()
-
-    return data["choices"][0]["message"]["content"]
-
-
-def web_search(query):
-    if not TAVILY_API_KEY:
-        return "Web search is not configured. Add TAVILY_API_KEY."
-
-    response = requests.post(
-        "https://api.tavily.com/search",
-        json={
-            "api_key": TAVILY_API_KEY,
-            "query": query,
-            "search_depth": "basic",
-            "max_results": 5
-        },
-        timeout=30
-    )
-
-    if not response.ok:
-        raise RuntimeError("Web search failed.")
-
-    results = response.json().get("results", [])
-
-    lines = []
-
-    for item in results:
-        lines.append(
-            f"Title: {item.get('title', '')}\n"
-            f"URL: {item.get('url', '')}\n"
-            f"Content: {item.get('content', '')}"
-        )
-
-    return "\n\n".join(lines)
-
-
-# ---------------- FILE READER ----------------
-
-def read_upload(upload):
-    name = upload.name.lower()
-
-    if name.endswith(".txt"):
-        return upload.getvalue().decode(
-            "utf-8",
-            errors="ignore"
-        )
-
-    if name.endswith(".pdf"):
-        reader = PdfReader(io.BytesIO(upload.getvalue()))
-
-        pages = []
-
-        for page in reader.pages:
-            pages.append(page.extract_text() or "")
-
-        return "\n\n".join(pages)
-
-    return (
-        f"User attached {upload.name}. "
-        "This file type is not text-extractable in this version."
-    )
-
-
-# ---------------- VOICE TRANSCRIPTION ----------------
-
-def transcribe_audio(audio_file):
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing.")
-
-    files = {
-        "file": (
-            "recording.wav",
-            audio_file.getvalue(),
-            "audio/wav"
-        )
-    }
-
-    response = requests.post(
-        "https://api.groq.com/openai/v1/audio/transcriptions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}"
-        },
-        data={
-            "model": "whisper-large-v3-turbo",
-            "response_format": "json"
-        },
-        files=files,
-        timeout=90
-    )
-
-    if not response.ok:
-        raise RuntimeError(
-            f"Transcription failed: {response.text[:400]}"
-        )
-
-    return response.json().get("text", "")
-
-
-# ---------------- PREMIUM UI ----------------
+# ============================================================
+# 2. PREMIUM DARK UI
+# ============================================================
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-    --bg: #090b10;
-    --panel: #111722;
-    --border: #252e3d;
-    --muted: #8e9aad;
-    --text: #f4f6fa;
-    --accent: #647bff;
+    --bg: #080a0f;
+    --panel: #10141d;
+    --panel2: #151b27;
+    --border: rgba(255,255,255,.09);
+    --text: #edf2fa;
+    --muted: #929daf;
+    --accent: #8b9cff;
 }
 
-html, body, [data-testid="stAppViewContainer"] {
-    background: var(--bg);
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background:
+      radial-gradient(ellipse at 80% 0%, rgba(72,90,170,.12), transparent 36%),
+      #080a0f;
     color: var(--text);
-    font-family: Inter, sans-serif;
 }
 
-[data-testid="stHeader"] {
-    background: rgba(9,11,16,.92);
+header[data-testid="stHeader"] {
+    background: rgba(8,10,15,.8);
 }
 
-[data-testid="stSidebar"] {
-    background: #0d1119;
+section[data-testid="stSidebar"] {
+    background: #0c1018;
     border-right: 1px solid var(--border);
 }
 
-[data-testid="stSidebar"] * {
-    color: #e7ebf3;
+section[data-testid="stSidebar"] * {
+    color: #e7ecf5;
 }
 
 .block-container {
-    max-width: 1150px;
+    max-width: 1450px;
     padding-top: 2rem;
-    padding-bottom: 5rem;
+    padding-bottom: 4rem;
 }
 
-h1, h2, h3 {
-    letter-spacing: -0.6px;
+h1, h2, h3, h4 {
+    letter-spacing: -0.7px;
 }
 
-.hero {
-    padding: 28px;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    background: linear-gradient(130deg,#151d2b,#10141e 65%,#11172a);
-    margin-bottom: 22px;
+p, label {
+    color: #d5dbea;
 }
 
-.hero-title {
-    font-size: 34px;
+.ng-brand {
+    font-size: 23px;
     font-weight: 800;
-    letter-spacing: -1.3px;
+    letter-spacing: 2px;
+    color: #f5f7ff;
 }
 
-.hero-sub {
-    color: var(--muted);
-    margin-top: 8px;
+.ng-brand span {
+    color: #91a1ff;
 }
 
-.metric-card {
+.ng-subtitle {
+    color: #8994a8;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.ng-card {
+    background: linear-gradient(145deg, #141a26, #10141d);
     border: 1px solid var(--border);
-    background: var(--panel);
-    border-radius: 16px;
-    padding: 20px;
-    min-height: 110px;
+    border-radius: 17px;
+    padding: 21px;
+    margin-bottom: 14px;
 }
 
-.metric-label {
-    color: var(--muted);
+.ng-card-title {
+    font-size: 13px;
+    color: #9ca8bb;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.ng-card-value {
+    font-size: 27px;
+    color: #f5f7ff;
+    font-weight: 750;
+    margin-top: 9px;
+}
+
+.ng-muted {
+    color: #8994a8;
     font-size: 13px;
 }
 
-.metric-value {
-    font-size: 25px;
-    font-weight: 750;
-    margin-top: 8px;
+.ng-hero {
+    padding: 27px;
+    border: 1px solid rgba(142,158,255,.2);
+    border-radius: 20px;
+    background: linear-gradient(120deg, #151d31, #10141e 70%);
+    margin-bottom: 24px;
 }
 
-[data-testid="stChatMessage"] {
-    border: 1px solid #202838;
+.ng-hero h1 {
+    font-size: clamp(28px, 4vw, 42px);
+    margin-bottom: 7px;
+}
+
+.ng-hero p {
+    color: #aab5c8;
+    margin-bottom: 0;
+}
+
+.stButton > button {
+    background: #202a42;
+    color: #f5f7ff;
+    border: 1px solid rgba(145,161,255,.25);
+    border-radius: 10px;
+    min-height: 42px;
+    font-weight: 600;
+    transition: .2s ease;
+}
+
+.stButton > button:hover {
+    background: #2b3858;
+    border-color: #91a1ff;
+    color: white;
+}
+
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div {
+    background: #111722 !important;
+    color: #f1f4fa !important;
+    border-color: #283246 !important;
+    border-radius: 10px !important;
+}
+
+.stChatMessage {
     background: #111722;
+    border: 1px solid var(--border);
     border-radius: 15px;
     padding: 12px;
     margin-bottom: 12px;
 }
 
 [data-testid="stChatInput"] {
-    background: #111722;
-    border: 1px solid #39445a;
-    border-radius: 18px;
+    background: #111722 !important;
+    border: 1px solid #34415a !important;
+    border-radius: 16px !important;
 }
 
 [data-testid="stChatInput"] textarea {
-    color: #ffffff !important;
-    background: transparent !important;
+    color: white !important;
 }
 
-[data-testid="stChatInput"] button {
-    color: #ffffff !important;
-}
-
-[data-testid="stFileUploader"] {
-    background: #101722;
-    border: 1px dashed #354057;
-    border-radius: 13px;
-}
-
-.stButton > button {
-    border-radius: 11px;
-    border: 1px solid #303b50;
-    background: #171f2d;
-    color: #f4f6fa;
-    font-weight: 600;
-    min-height: 40px;
-}
-
-.stButton > button:hover {
-    border-color: #647bff;
-    color: white;
-}
-
-div.stButton > button[kind="primary"] {
-    background: #586fff;
-    border-color: #586fff;
-}
-
-input, textarea, [data-baseweb="select"] {
-    color: #ffffff !important;
-}
-
-[data-baseweb="select"] > div {
+.stFileUploader {
     background: #111722;
-    border-color: #30394a;
+    border: 1px dashed #34415a;
+    border-radius: 12px;
+    padding: 10px;
 }
 
 hr {
-    border-color: #252e3d;
+    border-color: rgba(255,255,255,.08);
+}
+
+div[data-testid="stMetric"] {
+    background: #111722;
+    border: 1px solid var(--border);
+    padding: 15px;
+    border-radius: 14px;
 }
 
 footer {
     visibility: hidden;
 }
 
+#MainMenu {
+    visibility: hidden;
+}
+
+.ng-footer {
+    text-align: center;
+    color: #657187;
+    font-size: 11px;
+    padding: 35px 0 5px;
+    letter-spacing: 1px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------------- SESSION STATE ----------------
+# ============================================================
+# 3. SECRETS
+# ============================================================
 
-if "chat_id" not in st.session_state:
-    st.session_state.chat_id = None
+def get_secret(name, default=""):
+    try:
+        value = st.secrets.get(name, "")
+        if value:
+            return str(value).strip()
+    except Exception:
+        pass
 
-if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
-
-if "voice_choice" not in st.session_state:
-    st.session_state.voice_choice = "marin"
-
-if "last_answer" not in st.session_state:
-    st.session_state.last_answer = ""
+    return os.getenv(name, default).strip()
 
 
-# ---------------- SIDEBAR ----------------
+GROQ_API_KEY = get_secret("GROQ_API_KEY")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+TAVILY_API_KEY = get_secret("TAVILY_API_KEY")
+FINNHUB_API_KEY = get_secret("FINNHUB_API_KEY")
+
+
+# ============================================================
+# 4. DATABASE
+# ============================================================
+
+def db_connection():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def initialize_database():
+    conn = db_connection()
+    cur = conn.cursor()
+
+    # Existing database is reused. Existing tables are not deleted.
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ng_v2_chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ng_v2_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(chat_id) REFERENCES ng_v2_chats(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+initialize_database()
+
+
+def create_chat(title="New conversation"):
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_connection()
+
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ng_v2_chats(title, created_at, updated_at) VALUES(?,?,?)",
+        (title, now, now)
+    )
+
+    chat_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    return chat_id
+
+
+def save_message(chat_id, role, content):
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_connection()
+
+    conn.execute("""
+        INSERT INTO ng_v2_messages(chat_id, role, content, created_at)
+        VALUES(?,?,?,?)
+    """, (chat_id, role, content, now))
+
+    conn.execute("""
+        UPDATE ng_v2_chats SET updated_at=? WHERE id=?
+    """, (now, chat_id))
+
+    conn.commit()
+    conn.close()
+
+
+def get_chats():
+    conn = db_connection()
+
+    rows = conn.execute("""
+        SELECT * FROM ng_v2_chats
+        ORDER BY updated_at DESC
+    """).fetchall()
+
+    conn.close()
+    return rows
+
+
+def get_messages(chat_id):
+    conn = db_connection()
+
+    rows = conn.execute("""
+        SELECT role, content, created_at
+        FROM ng_v2_messages
+        WHERE chat_id=?
+        ORDER BY id ASC
+    """, (chat_id,)).fetchall()
+
+    conn.close()
+    return rows
+
+
+def rename_chat(chat_id, title):
+    conn = db_connection()
+
+    conn.execute("""
+        UPDATE ng_v2_chats SET title=?, updated_at=? WHERE id=?
+    """, (title[:80], datetime.now().isoformat(timespec="seconds"), chat_id))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_chat(chat_id):
+    conn = db_connection()
+
+    conn.execute("DELETE FROM ng_v2_messages WHERE chat_id=?", (chat_id,))
+    conn.execute("DELETE FROM ng_v2_chats WHERE id=?", (chat_id,))
+
+    conn.commit()
+    conn.close()
+
+
+# ============================================================
+# 5. SESSION STATE
+# ============================================================
+
+defaults = {
+    "active_chat": None,
+    "page": "Dashboard",
+    "system_prompt": (
+        "You are NEXTGEN AI, a capable and professional AI assistant. "
+        "Give accurate, clear, structured and helpful answers. "
+        "Respond in the language used by the user. "
+        "Do not invent facts. If uncertain, say so."
+    ),
+    "temperature": 0.7,
+    "chat_model": CHAT_MODEL,
+    "last_response": "",
+    "voice_name": "nova",
+    "voice_speed": 1.0,
+    "auto_speak": False,
+    "search_enabled": False,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# ============================================================
+# 6. API HELPERS
+# ============================================================
+
+def groq_chat(messages, temperature=0.7):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing in Streamlit Secrets.")
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": st.session_state.chat_model,
+        "messages": messages,
+        "temperature": float(temperature),
+        "max_tokens": 4096
+    }
+
+    response = requests.post(
+        GROQ_URL,
+        headers=headers,
+        json=payload,
+        timeout=90
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"Groq API error {response.status_code}: {response.text[:700]}"
+        )
+
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+
+def web_search(query):
+    if not TAVILY_API_KEY:
+        raise RuntimeError("TAVILY_API_KEY is missing.")
+
+    response = requests.post(
+        TAVILY_URL,
+        json={
+            "api_key": TAVILY_API_KEY,
+            "query": query,
+            "search_depth": "advanced",
+            "max_results": 5,
+            "include_answer": True
+        },
+        timeout=45
+    )
+
+    if not response.ok:
+        raise RuntimeError(f"Search error: {response.text[:400]}")
+
+    return response.json()
+
+
+def generate_speech(text, voice="nova", speed=1.0):
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is missing.")
+
+    response = requests.post(
+        f"{OPENAI_URL}/audio/speech",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": TTS_MODEL,
+            "voice": voice,
+            "input": text[:4000],
+            "speed": float(speed),
+            "instructions": (
+                "Speak naturally, clearly and conversationally. "
+                "Use a normal pace and avoid robotic delivery."
+            ),
+            "response_format": "mp3"
+        },
+        timeout=90
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"Speech API error {response.status_code}: {response.text[:500]}"
+        )
+
+    return response.content
+
+
+def transcribe_audio(audio_file):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing.")
+
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+
+    files = {
+        "file": (
+            audio_file.name,
+            audio_file.getvalue(),
+            audio_file.type or "audio/wav"
+        )
+    }
+
+    data = {"model": TRANSCRIBE_MODEL}
+
+    response = requests.post(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        headers=headers,
+        files=files,
+        data=data,
+        timeout=90
+    )
+
+    if not response.ok:
+        raise RuntimeError(f"Transcription error: {response.text[:500]}")
+
+    return response.json().get("text", "")
+
+
+def create_realtime_token(voice="marin"):
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is missing.")
+
+    if voice not in REALTIME_VOICES:
+        voice = "marin"
+
+    payload = {
+        "expires_after": {
+            "anchor": "created_at",
+            "seconds": 600
+        },
+        "session": {
+            "type": "realtime",
+            "model": REALTIME_MODEL,
+            "instructions": (
+                "You are NEXTGEN AI. Be helpful, natural and clear. "
+                "Speak Hindi when the user speaks Hindi and English "
+                "when the user speaks English. Keep answers appropriate."
+            ),
+            "audio": {
+                "output": {
+                    "voice": voice
+                },
+                "input": {
+                    "turn_detection": {
+                        "type": "server_vad"
+                    },
+                    "transcription": {
+                        "model": "gpt-4o-mini-transcribe"
+                    }
+                }
+            }
+        }
+    }
+
+    response = requests.post(
+        f"{OPENAI_URL}/realtime/client_secrets",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json=payload,
+        timeout=30
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"Realtime API error {response.status_code}: {response.text[:500]}"
+        )
+
+    token = response.json().get("value")
+
+    if not token:
+        raise RuntimeError("Realtime API did not return a client token.")
+
+    return token
+
+
+# ============================================================
+# 7. FILE / DOCUMENT PROCESSING
+# ============================================================
+
+def extract_pdf_text(uploaded_file):
+    reader = PdfReader(io.BytesIO(uploaded_file.getvalue()))
+    pages = []
+
+    for index, page in enumerate(reader.pages):
+        content = page.extract_text() or ""
+        if content.strip():
+            pages.append(f"\n[PAGE {index + 1}]\n{content}")
+
+    return "\n".join(pages)
+
+
+def process_uploaded_file(uploaded_file):
+    if uploaded_file is None:
+        return ""
+
+    name = uploaded_file.name.lower()
+
+    if name.endswith(".pdf"):
+        return extract_pdf_text(uploaded_file)[:18000]
+
+    if name.endswith((".txt", ".md", ".py", ".csv", ".json")):
+        return uploaded_file.getvalue().decode(
+            "utf-8", errors="replace"
+        )[:18000]
+
+    return (
+        f"File attached: {uploaded_file.name}. "
+        "This file type is not currently supported for text extraction."
+    )
+
+
+# ============================================================
+# 8. CHAT RESPONSE ENGINE
+# ============================================================
+
+def build_messages(chat_id, user_prompt, extra_context=""):
+    history = get_messages(chat_id)
+
+    messages = [
+        {
+            "role": "system",
+            "content": st.session_state.system_prompt
+        }
+    ]
+
+    for item in history[-16:]:
+        if item["role"] in ("user", "assistant"):
+            messages.append({
+                "role": item["role"],
+                "content": item["content"][:12000]
+            })
+
+    final_prompt = user_prompt
+
+    if extra_context:
+        final_prompt += (
+            "\n\nDOCUMENT / ATTACHMENT CONTEXT:\n"
+            + extra_context[:18000]
+        )
+
+    messages.append({
+        "role": "user",
+        "content": final_prompt
+    })
+
+    return messages
+
+
+def get_ai_answer(chat_id, prompt, extra_context=""):
+    messages = build_messages(chat_id, prompt, extra_context)
+
+    if st.session_state.search_enabled:
+        try:
+            search_data = web_search(prompt)
+
+            search_context = json.dumps(
+                search_data.get("results", []),
+                ensure_ascii=False
+            )[:10000]
+
+            messages[0]["content"] += (
+                "\nUse the following web search results as context. "
+                "Clearly distinguish sourced information from uncertainty.\n"
+                + search_context
+            )
+
+        except Exception as exc:
+            st.warning(f"Web search was unavailable: {exc}")
+
+    return groq_chat(
+        messages,
+        temperature=st.session_state.temperature
+    )
+
+
+# ============================================================
+# 9. SIDEBAR NAVIGATION
+# ============================================================
 
 with st.sidebar:
 
-    st.markdown("## ✦ NEXTGEN AI")
-    st.caption("INTELLIGENCE • CREATIVITY • PRODUCTIVITY")
+    st.markdown(
+        '<div class="ng-brand">NEXTGEN<span> AI</span></div>',
+        unsafe_allow_html=True
+    )
 
-    st.divider()
+    st.markdown(
+        '<div class="ng-subtitle">Intelligence workspace</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown("---")
 
     pages = [
         "Dashboard",
@@ -441,6 +733,8 @@ with st.sidebar:
         "Live Voice",
         "Voice Studio",
         "Web Research",
+        "PDF Assistant",
+        "Stock Market",
         "Chat History",
         "Settings",
         "About"
@@ -449,462 +743,974 @@ with st.sidebar:
     for page_name in pages:
         if st.button(
             page_name,
-            key="nav_" + page_name,
+            key=f"nav_{page_name}",
             use_container_width=True
         ):
             st.session_state.page = page_name
             st.rerun()
 
-    st.divider()
+    st.markdown("---")
 
-    if st.button("＋ New chat", use_container_width=True):
-        st.session_state.chat_id = create_chat()
+    if st.button("＋ New Chat", use_container_width=True):
+        st.session_state.active_chat = create_chat()
         st.session_state.page = "AI Chat"
         st.rerun()
 
-    st.caption("NEXTGEN AI · Version 2.0")
+    st.markdown("### Recent conversations")
 
+    recent_chats = get_chats()
 
-# ---------------- DASHBOARD ----------------
+    for chat in recent_chats[:8]:
+        label = chat["title"][:26]
 
-if st.session_state.page == "Dashboard":
-
-    st.markdown("""
-    <div class="hero">
-        <div class="hero-title">Your AI workspace.</div>
-        <div class="hero-sub">
-            One intelligent platform for conversations, voice,
-            research and productivity.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-label">AI ENGINE</div>
-            <div class="metric-value">Groq</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c2:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-label">VOICE SYSTEM</div>
-            <div class="metric-value">Realtime</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-label">WORKSPACE</div>
-            <div class="metric-value">Connected</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.write("")
-    st.subheader("Explore your workspace")
-
-    a, b = st.columns(2)
-
-    with a:
-        if st.button("Open AI Chat", use_container_width=True):
+        if st.button(
+            label,
+            key=f"recent_{chat['id']}",
+            use_container_width=True
+        ):
+            st.session_state.active_chat = chat["id"]
             st.session_state.page = "AI Chat"
             st.rerun()
 
-        if st.button("Open Voice Studio", use_container_width=True):
-            st.session_state.page = "Voice Studio"
-            st.rerun()
-
-    with b:
-        if st.button("Start Live Voice", use_container_width=True):
-            st.session_state.page = "Live Voice"
-            st.rerun()
-
-        if st.button("Open Web Research", use_container_width=True):
-            st.session_state.page = "Web Research"
-            st.rerun()
+    st.markdown("---")
+    st.caption("NEXTGEN AI · Version 2.0")
 
 
-# ---------------- AI CHAT ----------------
+# ============================================================
+# 10. HEADER
+# ============================================================
 
-elif st.session_state.page == "AI Chat":
+def page_header(title, subtitle):
+    st.markdown(f"""
+    <div style="margin-bottom:25px">
+        <div style="font-size:12px;color:#91a1ff;
+        letter-spacing:2px;font-weight:700">NEXTGEN AI WORKSPACE</div>
+        <h1 style="font-size:32px;margin:8px 0 4px">{title}</h1>
+        <div style="color:#929daf;font-size:14px">{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("## AI Chat")
-    st.caption("Ask anything. Your conversations are saved locally.")
 
-    if not st.session_state.chat_id:
-        st.session_state.chat_id = create_chat()
+def metric_card(title, value, description=""):
+    st.markdown(f"""
+    <div class="ng-card">
+        <div class="ng-card-title">{title}</div>
+        <div class="ng-card-value">{value}</div>
+        <div class="ng-muted">{description}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    chat_id = st.session_state.chat_id
-    messages = get_messages(chat_id)
 
-    for index, (role, content) in enumerate(messages):
-        with st.chat_message(role):
-            st.markdown(content)
+# ============================================================
+# 11. DASHBOARD
+# ============================================================
 
-            if role == "assistant":
-                with st.expander("Message actions"):
-                    st.code(content, language=None)
-
-                    if st.button(
-                        "Read this answer",
-                        key=f"read_{index}"
-                    ):
-                        st.session_state.last_answer = content
-                        st.session_state.page = "Voice Studio"
-                        st.rerun()
-
-    # Separate recording control: Streamlit's native chat composer
-    # cannot place a custom mic button inside its input bar.
-    recording = st.audio_input("Record a voice message")
-
-    if recording:
-        if st.button("Transcribe recording"):
-            try:
-                transcript = transcribe_audio(recording)
-                st.session_state.voice_transcript = transcript
-                st.success("Transcription ready.")
-                st.text_area(
-                    "Edit your transcription",
-                    value=transcript,
-                    key="edited_transcript"
-                )
-            except Exception as error:
-                st.error(str(error))
-
-    if "edited_transcript" in st.session_state:
-        if st.button("Send transcribed message"):
-            st.session_state.pending_message = (
-                st.session_state.edited_transcript
-            )
-            del st.session_state.edited_transcript
-            st.rerun()
-
-    prompt = st.chat_input(
-        "Message NEXTGEN AI...",
-        accept_file="multiple",
-        file_type=["pdf", "txt", "png", "jpg", "jpeg"]
+def dashboard_page():
+    page_header(
+        "Your AI workspace",
+        "A focused environment for thinking, research and productivity."
     )
 
-    pending = st.session_state.pop("pending_message", None)
+    st.markdown("""
+    <div class="ng-hero">
+        <div class="ng-subtitle">YOUR INTELLIGENT ASSISTANT</div>
+        <h1>Think clearly. Create more.</h1>
+        <p>
+        Chat with AI, explore documents, research topics and work
+        with information from one professional workspace.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    if prompt or pending:
+    chats = get_chats()
 
-        if prompt:
-            user_text = prompt.text or ""
-            attached_files = prompt.files or []
-        else:
-            user_text = pending
-            attached_files = []
+    total_messages = 0
+    conn = db_connection()
 
-        extracted = []
+    try:
+        total_messages = conn.execute(
+            "SELECT COUNT(*) FROM ng_v2_messages"
+        ).fetchone()[0]
+    except Exception:
+        pass
 
-        for upload in attached_files:
+    conn.close()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        metric_card("Conversations", str(len(chats)), "Saved in your local database")
+
+    with col2:
+        metric_card("Messages", str(total_messages), "Conversation messages")
+
+    with col3:
+        metric_card("AI status", "Ready" if GROQ_API_KEY else "Setup needed",
+                    "Groq connection configuration")
+
+    st.markdown("### Explore workspace")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        with st.container(border=True):
+            st.markdown("#### AI Chat")
+            st.write("Ask questions, brainstorm, write and learn.")
+            if st.button("Open AI Chat", key="dash_chat"):
+                st.session_state.page = "AI Chat"
+                st.rerun()
+
+        with st.container(border=True):
+            st.markdown("#### Document Assistant")
+            st.write("Upload a PDF and ask questions about its contents.")
+            if st.button("Open PDF Assistant", key="dash_pdf"):
+                st.session_state.page = "PDF Assistant"
+                st.rerun()
+
+    with c2:
+        with st.container(border=True):
+            st.markdown("#### Live Voice")
+            st.write("Talk with the AI using your microphone.")
+            if st.button("Open Live Voice", key="dash_voice"):
+                st.session_state.page = "Live Voice"
+                st.rerun()
+
+        with st.container(border=True):
+            st.markdown("#### Web Research")
+            st.write("Search the web and organize useful information.")
+            if st.button("Open Research", key="dash_research"):
+                st.session_state.page = "Web Research"
+                st.rerun()
+
+
+# ============================================================
+# 12. CHAT PAGE
+# ============================================================
+
+def chat_page():
+    page_header(
+        "AI Chat",
+        "A conversational workspace powered by your configured AI model."
+    )
+
+    if not st.session_state.active_chat:
+        st.session_state.active_chat = create_chat()
+
+    chat_id = st.session_state.active_chat
+    history = get_messages(chat_id)
+
+    # Display existing history
+    for index, item in enumerate(history):
+        with st.chat_message(item["role"]):
+            st.markdown(item["content"])
+
+            if item["role"] == "assistant":
+                with st.popover("Message actions"):
+                    st.code(item["content"], language=None)
+                    st.caption("Use the copy control in the code block.")
+
+    st.markdown("---")
+
+    uploaded = st.file_uploader(
+        "＋ Attach a document or text file",
+        type=["pdf", "txt", "md", "py", "csv", "json"],
+        key=f"chat_upload_{chat_id}"
+    )
+
+    audio_input = st.audio_input(
+        "Record a voice message",
+        key=f"chat_audio_{chat_id}"
+    )
+
+    if audio_input:
+        if st.button("Transcribe recording", key=f"transcribe_{chat_id}"):
             try:
-                extracted.append(
-                    f"\n\nAttachment: {upload.name}\n"
-                    + read_upload(upload)[:12000]
-                )
-            except Exception as error:
-                extracted.append(
-                    f"\nAttachment error: {error}"
-                )
+                with st.spinner("Transcribing..."):
+                    transcript = transcribe_audio(audio_input)
 
-        full_text = user_text + "\n".join(extracted)
+                st.session_state["voice_transcript"] = transcript
+                st.success("Transcription ready.")
 
-        if not full_text.strip():
-            st.warning("Write a message or attach a file.")
-            st.stop()
+            except Exception as exc:
+                st.error(str(exc))
 
-        if not messages:
-            update_title(chat_id, user_text or "File conversation")
+    prompt = st.chat_input("Message NEXTGEN AI...")
 
-        save_message(chat_id, "user", full_text)
+    if prompt is None and st.session_state.get("voice_transcript"):
+        prompt = st.session_state.pop("voice_transcript")
+
+    if prompt:
+        attachment_context = ""
+
+        if uploaded:
+            try:
+                attachment_context = process_uploaded_file(uploaded)
+            except Exception as exc:
+                st.error(f"Could not read attachment: {exc}")
+
+        save_message(chat_id, "user", prompt)
+
+        if len(history) == 0:
+            rename_chat(chat_id, prompt[:55])
 
         with st.chat_message("user"):
-            st.markdown(user_text or "Please review the attachment.")
-            for upload in attached_files:
-                st.caption("Attached: " + upload.name)
-
-        history = [
-            {
-                "role": role,
-                "content": content
-            }
-            for role, content in get_messages(chat_id)[-16:]
-        ]
-
-        history.insert(
-            0,
-            {
-                "role": "system",
-                "content": (
-                    "You are NEXTGEN AI, a capable, accurate and "
-                    "friendly assistant. Answer in the user's language. "
-                    "Use clear formatting. Do not invent facts."
-                )
-            }
-        )
+            st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            with st.spinner("NEXTGEN AI is thinking..."):
                 try:
-                    answer = groq_chat(history)
+                    answer = get_ai_answer(
+                        chat_id,
+                        prompt,
+                        attachment_context
+                    )
+
                     st.markdown(answer)
+
                     save_message(chat_id, "assistant", answer)
-                    st.session_state.last_answer = answer
+                    st.session_state.last_response = answer
 
-                except Exception as error:
-                    st.error(str(error))
+                    if st.session_state.auto_speak and OPENAI_API_KEY:
+                        audio_bytes = generate_speech(
+                            answer,
+                            st.session_state.voice_name,
+                            st.session_state.voice_speed
+                        )
+                        st.audio(audio_bytes, format="audio/mp3")
+
+                except Exception as exc:
+                    st.error(f"AI response error: {exc}")
+
+        st.rerun()
+
+    if st.session_state.last_response:
+        with st.expander("Latest response tools"):
+            if st.button("Read latest response aloud"):
+                try:
+                    audio_bytes = generate_speech(
+                        st.session_state.last_response,
+                        st.session_state.voice_name,
+                        st.session_state.voice_speed
+                    )
+                    st.audio(audio_bytes, format="audio/mp3")
+                except Exception as exc:
+                    st.error(str(exc))
+
+            if st.button("Clear response tools"):
+                st.session_state.last_response = ""
+                st.rerun()
 
 
-# ---------------- LIVE VOICE ----------------
+# ============================================================
+# 13. LIVE VOICE PAGE
+# ============================================================
 
-elif st.session_state.page == "Live Voice":
-
-    st.markdown("## Live Voice")
-    st.caption("Real-time speech-to-speech conversation.")
+def live_voice_page():
+    page_header(
+        "Live Voice",
+        "Real-time voice conversation using browser microphone and WebRTC."
+    )
 
     if not OPENAI_API_KEY:
-        st.error(
-            "OPENAI_API_KEY is missing. Add it in Streamlit Secrets."
-        )
+        st.error("Add OPENAI_API_KEY to Streamlit Cloud Secrets to enable Live Voice.")
+        return
 
-    else:
-        voice = st.selectbox(
-            "Live voice",
-            options=VOICES,
-            index=VOICES.index("marin")
-        )
+    selected_voice = st.selectbox(
+        "Assistant voice",
+        REALTIME_VOICES,
+        index=REALTIME_VOICES.index("marin")
+    )
 
-        if st.button("Prepare live voice session"):
-            try:
-                token = create_client_secret(voice)
+    st.info(
+        "Your browser will request microphone permission. "
+        "Use HTTPS and allow microphone access."
+    )
 
-                html_path = Path(__file__).with_name("liveVoice.html")
+    if st.button("Generate secure voice session", type="primary"):
+        try:
+            with st.spinner("Preparing secure session..."):
+                token = create_realtime_token(selected_voice)
 
-                html = html_path.read_text(encoding="utf-8")
+            # Token is short-lived. The permanent API key stays server-side.
+            safe_token = json.dumps(token)
 
-                html = html.replace(
-                    "__CLIENT_SECRET__",
-                    token
-                )
+            html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+            body {
+                background:#0d121c;
+                color:#eef2fb;
+                font-family:Arial,sans-serif;
+                text-align:center;
+                padding:18px;
+            }
+            .panel {
+                border:1px solid #303c55;
+                background:#141c2a;
+                padding:24px;
+                border-radius:18px;
+            }
+            button {
+                border:1px solid #596b9d;
+                background:#28385c;
+                color:white;
+                padding:13px 24px;
+                border-radius:10px;
+                margin:8px;
+                cursor:pointer;
+                font-size:14px;
+            }
+            button:disabled { opacity:.45; }
+            #status { color:#aebbd1; margin:15px; }
+            </style>
+            </head>
+            <body>
+            <div class="panel">
+                <h2>NEXTGEN AI Voice</h2>
+                <p id="status">Ready to connect</p>
+                <button id="start">Start conversation</button>
+                <button id="stop" disabled>End conversation</button>
+                <audio id="remoteAudio" autoplay></audio>
+            </div>
 
-                components.html(
-                    html,
-                    height=470,
-                    scrolling=True
-                )
+            <script>
+            const TOKEN = __TOKEN__;
 
-            except Exception as error:
-                st.error(f"Could not prepare voice session: {error}")
+            let pc = null;
+            let dc = null;
+            let localStream = null;
 
-        st.info(
-            "Press Start call in the voice panel. Allow microphone access "
-            "when your browser asks."
-        )
+            const status = document.getElementById("status");
+            const start = document.getElementById("start");
+            const stop = document.getElementById("stop");
+            const audio = document.getElementById("remoteAudio");
+
+            start.onclick = async () => {
+                start.disabled = true;
+                status.textContent = "Requesting microphone permission...";
+
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true
+                    });
+
+                    pc = new RTCPeerConnection();
+
+                    pc.ontrack = (event) => {
+                        audio.srcObject = event.streams[0];
+                    };
+
+                    localStream.getTracks().forEach(track => {
+                        pc.addTrack(track, localStream);
+                    });
+
+                    dc = pc.createDataChannel("oai-events");
+
+                    dc.onopen = () => {
+                        status.textContent = "Connected — start speaking";
+                        stop.disabled = false;
+                    };
+
+                    dc.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === "error") {
+                                status.textContent = "Voice error: " +
+                                    (data.error?.message || "Unknown error");
+                            }
+                        } catch(e) {}
+                    };
+
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+
+                    const response = await fetch(
+                        "https://api.openai.com/v1/realtime/calls?model=gpt-realtime",
+                        {
+                            method: "POST",
+                            body: offer.sdp,
+                            headers: {
+                                "Authorization": "Bearer " + TOKEN,
+                                "Content-Type": "application/sdp"
+                            }
+                        }
+                    );
+
+                    if (!response.ok) {
+                        throw new Error(await response.text());
+                    }
+
+                    const answer = {
+                        type: "answer",
+                        sdp: await response.text()
+                    };
+
+                    await pc.setRemoteDescription(answer);
+
+                    status.textContent = "Connecting...";
+                } catch(error) {
+                    status.textContent = "Connection failed: " + error.message;
+                    start.disabled = false;
+                    stop.disabled = true;
+                    if (pc) pc.close();
+                    if (localStream) {
+                        localStream.getTracks().forEach(t => t.stop());
+                    }
+                }
+            };
+
+            stop.onclick = () => {
+                if (dc) dc.close();
+                if (pc) pc.close();
+
+                if (localStream) {
+                    localStream.getTracks().forEach(t => t.stop());
+                }
+
+                audio.srcObject = null;
+                status.textContent = "Conversation ended";
+                start.disabled = false;
+                stop.disabled = true;
+            };
+            </script>
+            </body>
+            </html>
+            """
+
+            html = html.replace("__TOKEN__", safe_token)
+
+            components.html(html, height=330, scrolling=False)
+
+        except Exception as exc:
+            st.error(f"Could not start voice session: {exc}")
 
 
-# ---------------- VOICE STUDIO ----------------
+# ============================================================
+# 14. VOICE STUDIO
+# ============================================================
 
-elif st.session_state.page == "Voice Studio":
+def voice_studio_page():
+    page_header(
+        "Voice Studio",
+        "Convert text into natural AI speech."
+    )
 
-    st.markdown("## Voice Studio")
-    st.caption("Choose a voice and generate speech.")
+    if not OPENAI_API_KEY:
+        st.error("OPENAI_API_KEY is required for speech generation.")
+        return
 
-    default_text = st.session_state.get("last_answer", "")
-
-    text = st.text_area(
+    text_input = st.text_area(
         "Text to speak",
-        value=default_text,
         height=180,
         placeholder="Enter the text you want NEXTGEN AI to speak..."
     )
 
     voice = st.selectbox(
-        "Choose voice",
-        options=VOICES,
-        index=VOICES.index("nova")
+        "Voice",
+        TTS_VOICES,
+        index=TTS_VOICES.index("nova")
     )
 
     speed = st.slider(
-        "Speaking speed",
-        min_value=0.7,
-        max_value=1.8,
-        value=1.15,
+        "Speech speed",
+        min_value=0.75,
+        max_value=1.5,
+        value=1.0,
         step=0.05
     )
 
-    style = st.selectbox(
-        "Speaking style",
-        [
-            "Speak naturally and clearly.",
-            "Speak confidently and energetically.",
-            "Speak calmly and professionally.",
-            "Speak like a friendly teacher.",
-            "Speak with expressive storytelling."
-        ]
-    )
-
-    if st.button("Generate voice", type="primary"):
-        if not text.strip():
+    if st.button("Generate speech", type="primary"):
+        if not text_input.strip():
             st.warning("Enter some text first.")
-
         else:
             try:
-                with st.spinner("Generating voice..."):
-                    audio = generate_speech(
-                        text=text,
-                        voice=voice,
-                        speed=speed,
-                        instructions=style
+                with st.spinner("Generating audio..."):
+                    audio_bytes = generate_speech(
+                        text_input,
+                        voice,
+                        speed
                     )
 
-                st.audio(audio, format="audio/mp3")
+                st.success("Speech generated.")
+                st.audio(audio_bytes, format="audio/mp3")
 
                 st.download_button(
                     "Download audio",
-                    data=audio,
-                    file_name="nextgen_voice.mp3",
+                    data=audio_bytes,
+                    file_name="nextgen_ai_voice.mp3",
                     mime="audio/mpeg"
                 )
 
-                st.caption("This audio is AI-generated.")
-
-            except Exception as error:
-                st.error(str(error))
+            except Exception as exc:
+                st.error(str(exc))
 
 
-# ---------------- WEB RESEARCH ----------------
+# ============================================================
+# 15. WEB RESEARCH
+# ============================================================
 
-elif st.session_state.page == "Web Research":
+def research_page():
+    page_header(
+        "Web Research",
+        "Search the web and turn results into useful summaries."
+    )
 
-    st.markdown("## Web Research")
-    st.caption("Search the web and ask AI to summarize the findings.")
+    if not TAVILY_API_KEY:
+        st.warning("Add TAVILY_API_KEY in Streamlit Secrets.")
+        return
 
     query = st.text_input(
-        "What do you want to research?",
-        placeholder="Enter your research topic..."
+        "Research topic",
+        placeholder="What would you like to research?"
+    )
+
+    depth = st.selectbox(
+        "Search depth",
+        ["basic", "advanced"]
     )
 
     if st.button("Search web", type="primary"):
         if not query.strip():
-            st.warning("Enter a search topic.")
+            st.warning("Enter a topic.")
+            return
 
-        else:
-            try:
-                with st.spinner("Searching..."):
-                    result = web_search(query)
-
-                st.markdown("### Search results")
-                st.markdown(result)
-
-                st.markdown("### AI summary")
-
-                summary = groq_chat([
-                    {
-                        "role": "system",
-                        "content": (
-                            "Summarize the supplied research accurately. "
-                            "Keep source URLs in the answer."
-                        )
+        try:
+            with st.spinner("Searching the web..."):
+                response = requests.post(
+                    TAVILY_URL,
+                    json={
+                        "api_key": TAVILY_API_KEY,
+                        "query": query,
+                        "search_depth": depth,
+                        "max_results": 8,
+                        "include_answer": True
                     },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Research question: {query}\n\n"
-                            f"Search results:\n{result}"
-                        )
-                    }
-                ])
+                    timeout=45
+                )
 
-                st.markdown(summary)
+            if not response.ok:
+                raise RuntimeError(response.text[:500])
 
-            except Exception as error:
-                st.error(str(error))
+            data = response.json()
+
+            if data.get("answer"):
+                st.markdown("### Search summary")
+                st.write(data["answer"])
+
+            st.markdown("### Sources")
+
+            for item in data.get("results", []):
+                with st.container(border=True):
+                    st.markdown(f"**{item.get('title', 'Source')}**")
+                    st.write(item.get("content", "")[:700])
+
+                    url = item.get("url")
+                    if url:
+                        st.markdown(f"[Open source]({url})")
+
+        except Exception as exc:
+            st.error(f"Research error: {exc}")
 
 
-# ---------------- CHAT HISTORY ----------------
+# ============================================================
+# 16. PDF ASSISTANT
+# ============================================================
 
-elif st.session_state.page == "Chat History":
+def pdf_page():
+    page_header(
+        "PDF Assistant",
+        "Upload a PDF and ask questions about its extracted text."
+    )
 
-    st.markdown("## Chat History")
+    uploaded = st.file_uploader(
+        "Upload PDF",
+        type=["pdf"],
+        key="pdf_assistant_upload"
+    )
+
+    if uploaded:
+        try:
+            pdf_text = extract_pdf_text(uploaded)
+
+            if not pdf_text.strip():
+                st.warning("No selectable text found in this PDF.")
+                return
+
+            st.success("PDF text extracted successfully.")
+
+            with st.expander("Preview extracted text"):
+                st.text(pdf_text[:6000])
+
+            question = st.text_area(
+                "Ask a question about this document",
+                placeholder="Summarize this PDF or explain a specific section..."
+            )
+
+            if st.button("Ask about PDF", type="primary"):
+                if not question.strip():
+                    st.warning("Enter a question.")
+                    return
+
+                prompt = (
+                    "Answer using the following PDF content. "
+                    "If the answer is not present, say so. "
+                    "Do not invent details.\n\n"
+                    f"PDF CONTENT:\n{pdf_text[:18000]}\n\n"
+                    f"QUESTION:\n{question}"
+                )
+
+                try:
+                    with st.spinner("Analyzing document..."):
+                        answer = groq_chat([
+                            {
+                                "role": "system",
+                                "content": st.session_state.system_prompt
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ])
+
+                    st.markdown("### Answer")
+                    st.markdown(answer)
+
+                except Exception as exc:
+                    st.error(str(exc))
+
+        except Exception as exc:
+            st.error(f"PDF processing error: {exc}")
+
+
+# ============================================================
+# 17. STOCK MARKET DASHBOARD
+# ============================================================
+
+def get_stock_quote(symbol):
+    if not FINNHUB_API_KEY:
+        raise RuntimeError("FINNHUB_API_KEY is missing.")
+
+    response = requests.get(
+        f"{FINNHUB_URL}/quote",
+        params={
+            "symbol": symbol,
+            "token": FINNHUB_API_KEY
+        },
+        timeout=20
+    )
+
+    if not response.ok:
+        raise RuntimeError(response.text[:300])
+
+    return response.json()
+
+
+def stock_page():
+    page_header(
+        "Market Overview",
+        "Market information and educational stock analysis."
+    )
+
+    if not FINNHUB_API_KEY:
+        st.warning("Add FINNHUB_API_KEY to enable live quote data.")
+        return
+
+    symbol = st.text_input(
+        "Stock symbol",
+        value="AAPL",
+        placeholder="Example: AAPL, MSFT, NVDA"
+    ).upper().strip()
+
+    if st.button("Get market quote", type="primary"):
+        if not re.fullmatch(r"[A-Z0-9.^-]{1,15}", symbol):
+            st.warning("Enter a valid stock symbol.")
+            return
+
+        try:
+            with st.spinner("Fetching market data..."):
+                quote = get_stock_quote(symbol)
+
+            current = quote.get("c", 0)
+            previous = quote.get("pc", 0)
+            change = quote.get("d", 0)
+            percent = quote.get("dp", 0)
+
+            if not current:
+                st.warning("No quote data returned for this symbol.")
+                return
+
+            a, b, c = st.columns(3)
+
+            with a:
+                st.metric(
+                    f"{symbol} price",
+                    f"{current:.2f}",
+                    f"{change:.2f}"
+                )
+
+            with b:
+                st.metric("Change %", f"{percent:.2f}%")
+
+            with c:
+                st.metric("Previous close", f"{previous:.2f}")
+
+            st.caption(
+                "Quote data may be delayed or subject to provider limits."
+            )
+
+            st.markdown("### Basic interpretation")
+
+            if change > 0:
+                st.success("The latest quote is above the previous close.")
+            elif change < 0:
+                st.warning("The latest quote is below the previous close.")
+            else:
+                st.info("The latest quote is unchanged from the previous close.")
+
+            st.info(
+                "This page is for educational information only, "
+                "not a recommendation to buy or sell."
+            )
+
+        except Exception as exc:
+            st.error(f"Market data error: {exc}")
+
+
+# ============================================================
+# 18. CHAT HISTORY
+# ============================================================
+
+def history_page():
+    page_header(
+        "Chat History",
+        "Review and manage your saved conversations."
+    )
 
     chats = get_chats()
 
     if not chats:
-        st.info("No conversations saved yet.")
+        st.info("No saved conversations yet.")
+        return
 
     for chat in chats:
-        chat_id, title, created = chat
+        with st.container(border=True):
+            left, right = st.columns([5, 1])
 
-        with st.expander(f"{title} · {created}"):
-            history = get_messages(chat_id)
+            with left:
+                st.markdown(f"**{chat['title']}**")
+                st.caption(f"Last updated: {chat['updated_at']}")
 
-            for role, content in history:
-                with st.chat_message(role):
-                    st.markdown(content)
+            with right:
+                if st.button("Open", key=f"open_history_{chat['id']}"):
+                    st.session_state.active_chat = chat["id"]
+                    st.session_state.page = "AI Chat"
+                    st.rerun()
 
-            if st.button(
-                "Continue this chat",
-                key=f"continue_{chat_id}"
-            ):
-                st.session_state.chat_id = chat_id
-                st.session_state.page = "AI Chat"
-                st.rerun()
+            with st.expander("Manage conversation"):
+                new_title = st.text_input(
+                    "Conversation title",
+                    value=chat["title"],
+                    key=f"title_{chat['id']}"
+                )
+
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    if st.button("Save title", key=f"save_title_{chat['id']}"):
+                        rename_chat(chat["id"], new_title)
+                        st.rerun()
+
+                with c2:
+                    if st.button("Delete chat", key=f"delete_{chat['id']}"):
+                        delete_chat(chat["id"])
+
+                        if st.session_state.active_chat == chat["id"]:
+                            st.session_state.active_chat = None
+
+                        st.rerun()
 
 
-# ---------------- SETTINGS ----------------
+# ============================================================
+# 19. SETTINGS
+# ============================================================
 
-elif st.session_state.page == "Settings":
-
-    st.markdown("## Settings")
-
-    st.write("API connection status")
-
-    st.write(
-        "Groq:",
-        "Connected" if GROQ_API_KEY else "Not configured"
+def settings_page():
+    page_header(
+        "Settings",
+        "Configure the AI workspace."
     )
 
-    st.write(
-        "OpenAI:",
-        "Connected" if OPENAI_API_KEY else "Not configured"
+    st.markdown("### Chat configuration")
+
+    st.session_state.chat_model = st.selectbox(
+        "Groq model",
+        [
+            "openai/gpt-oss-120b",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
+        ],
+        index=0
     )
 
-    st.write(
-        "Tavily:",
-        "Connected" if TAVILY_API_KEY else "Not configured"
+    st.session_state.temperature = st.slider(
+        "Response creativity",
+        min_value=0.0,
+        max_value=1.5,
+        value=float(st.session_state.temperature),
+        step=0.1
     )
 
-    st.info(
-        "Keep all API keys in Streamlit Secrets. "
-        "Never put private keys inside HTML or JavaScript."
+    st.session_state.search_enabled = st.toggle(
+        "Use web search in AI Chat",
+        value=st.session_state.search_enabled
     )
 
+    st.markdown("### Voice settings")
 
-# ---------------- ABOUT ----------------
+    st.session_state.voice_name = st.selectbox(
+        "Default speech voice",
+        TTS_VOICES,
+        index=TTS_VOICES.index(st.session_state.voice_name)
+        if st.session_state.voice_name in TTS_VOICES else 6
+    )
 
-elif st.session_state.page == "About":
+    st.session_state.voice_speed = st.slider(
+        "Default speech speed",
+        0.75,
+        1.5,
+        float(st.session_state.voice_speed),
+        0.05
+    )
 
-    st.markdown("## About NEXTGEN AI")
+    st.session_state.auto_speak = st.toggle(
+        "Automatically read AI responses aloud",
+        value=st.session_state.auto_speak
+    )
+
+    st.markdown("### System instructions")
+
+    new_prompt = st.text_area(
+        "AI system instructions",
+        value=st.session_state.system_prompt,
+        height=150
+    )
+
+    if st.button("Save settings", type="primary"):
+        st.session_state.system_prompt = new_prompt
+        st.success("Settings saved for this session.")
+
+    st.markdown("---")
+    st.markdown("### API connection status")
+
+    status_items = [
+        ("Groq", GROQ_API_KEY),
+        ("OpenAI", OPENAI_API_KEY),
+        ("Tavily", TAVILY_API_KEY),
+        ("Finnhub", FINNHUB_API_KEY)
+    ]
+
+    for name, key in status_items:
+        if key:
+            st.success(f"{name}: Configured")
+        else:
+            st.warning(f"{name}: Not configured")
+
+
+# ============================================================
+# 20. ABOUT
+# ============================================================
+
+def about_page():
+    page_header(
+        "About NEXTGEN AI",
+        "A multi-tool AI workspace."
+    )
 
     st.markdown("""
-    NEXTGEN AI is an AI workspace for:
+    <div class="ng-card">
+        <h2>NEXTGEN AI</h2>
+        <p class="ng-muted">One workspace. Multiple capabilities.</p>
+        <hr>
+        <p>
+        NEXTGEN AI brings conversational AI, document assistance,
+        web research, speech generation and market information
+        into one interface.
+        </p>
+        <p class="ng-muted">
+        Built with Python and Streamlit.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    - AI conversations
-    - Persistent chat history
-    - Voice transcription
-    - AI text-to-speech
-    - Real-time voice conversations
-    - Web research
-    - PDF and text attachments
+    st.markdown("### Current modules")
 
-    **Built with Python, Streamlit and AI APIs.**
-    """)
+    modules = [
+        "AI Chat and conversation history",
+        "Document and PDF text assistant",
+        "Web research",
+        "Speech generation",
+        "Realtime voice connection",
+        "Stock quote lookup",
+        "Session-based settings"
+    ]
 
-    st.caption("NEXTGEN AI · 2026")
+    for item in modules:
+        st.markdown(f"- {item}")
+
+    st.caption(
+        "AI responses can be inaccurate. Verify important information "
+        "with reliable sources."
+    )
+
+
+# ============================================================
+# 21. PAGE ROUTER
+# ============================================================
+
+current_page = st.session_state.page
+
+if current_page == "Dashboard":
+    dashboard_page()
+
+elif current_page == "AI Chat":
+    chat_page()
+
+elif current_page == "Live Voice":
+    live_voice_page()
+
+elif current_page == "Voice Studio":
+    voice_studio_page()
+
+elif current_page == "Web Research":
+    research_page()
+
+elif current_page == "PDF Assistant":
+    pdf_page()
+
+elif current_page == "Stock Market":
+    stock_page()
+
+elif current_page == "Chat History":
+    history_page()
+
+elif current_page == "Settings":
+    settings_page()
+
+elif current_page == "About":
+    about_page()
+
+else:
+    dashboard_page()
+
+
+# ============================================================
+# 22. FOOTER
+# ============================================================
+
+st.markdown("""
+<div class="ng-footer">
+    NEXTGEN AI · INTELLIGENCE WORKSPACE · 2026
+</div>
+""", unsafe_allow_html=True)

@@ -37,7 +37,8 @@ def create_client_secret(voice="marin"):
 
     if voice not in VOICES:
         voice = "marin"
-
+   if voice not in REALTIME_VOICES:
+    voice = "marin"
     payload = {
         "expires_after": {
             "anchor": "created_at",

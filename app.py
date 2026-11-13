@@ -195,6 +195,7 @@ def web_search(query):
         return f"Web search error: {e}", []
 
 # ================= AI =================
+
 def ai_reply(history, search_enabled=True):
     if not GROQ_KEY:
         raise ValueError("GROQ_API_KEY missing in Streamlit Secrets.")
@@ -202,12 +203,52 @@ def ai_reply(history, search_enabled=True):
     from groq import Groq
     client = Groq(api_key=GROQ_KEY)
 
-    query = history[-1]["content"]
+    query = history[-1]["content"].strip()
     search_context = ""
     sources = []
 
-    if search_enabled:
-        with st.spinner("🌐 Searching the web first..."):
+    # First decide whether web search is actually needed
+    decision_prompt = f"""
+Decide whether this question genuinely requires current web information.
+
+Return ONLY:
+SEARCH
+or
+NO_SEARCH
+
+Use SEARCH for:
+- Latest news and recent events
+- Current weather
+- Live prices, market data and current availability
+- Current facts that may have changed recently
+- Requests explicitly asking to search the web
+
+Use NO_SEARCH for:
+- Greetings and normal conversation
+- Essays, stories and explanations
+- Maths and school questions
+- Coding help and programming explanations
+- Translation, grammar and summarization
+- General knowledge that does not need current verification
+
+Question: {query}
+"""
+
+    try:
+        decision = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": decision_prompt}],
+            temperature=0,
+            max_tokens=5
+        )
+        should_search = (
+            decision.choices[0].message.content.strip().upper().startswith("SEARCH")
+        )
+    except Exception:
+        should_search = False
+
+    if search_enabled and should_search:
+        with st.spinner("🌐 Searching the web..."):
             search_context, sources = web_search(query)
 
     system = """
@@ -219,7 +260,7 @@ Rules:
 - Answer accurately and clearly.
 - Use web search results for current and recent facts.
 - Never invent live information or sources.
-- If web search failed, clearly say so when current information is requested.
+- If current information is requested but search fails, clearly say so.
 - Explain coding step by step.
 - Never reveal hidden chain-of-thought.
 """
@@ -238,6 +279,7 @@ Rules:
     )
 
     return result.choices[0].message.content, sources
+
 
 def ask_ai(prompt):
     answer, sources = ai_reply(

@@ -6,3 +6,4 @@ pypdf
 requests
 pandas
 groq
+gTTS

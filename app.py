@@ -522,7 +522,24 @@ if page == "Dashboard":
     
 
     cols = st.columns(2)
+cards = [
+    ("💬 AI Chat", "Ask questions and get AI answers."),
+    ("🌐 Current Affairs", "Explore recent news and events."),
+    ("🛠️ App Builder", "Plan and generate app code."),
+    ("💻 Coding School", "Learn programming from zero."),
+    ("🌍 Language Learning", "Practise different languages."),
+    ("📚 Study Assistant", "Understand school subjects."),
+    ("📄 PDF Assistant", "Ask questions about documents.")
+]
 
+cols = st.columns(2)
+
+for i, (title, desc) in enumerate(cards):
+    with cols[i % 2]:
+        st.markdown(
+            f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
+            unsafe_allow_html=True
+        )
     for i, (title, desc) in enumerate(cards):
         with cols[i % 2]:
             st.markdown(

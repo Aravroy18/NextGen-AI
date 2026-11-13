@@ -212,6 +212,18 @@ def init_db():
     )
     """)
 
+    # New table: stores message feedback without modifying old chat history.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS ng_feedback(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        chat_id INTEGER,
+        message_id INTEGER,
+        rating TEXT NOT NULL,
+        created_at TEXT
+    )
+    """)
+
     con.commit()
     con.close()
 
@@ -412,6 +424,7 @@ def restore_session():
     con.close()
 
     if user:
+        st.session_state.session_token = token
         st.session_state.user_id = row[0]
         st.session_state.username = user[0]
         st.session_state.authenticated = True
@@ -645,11 +658,23 @@ def finnhub_get(endpoint, params=None):
         params=params,
         timeout=20
     )
+    if response.status_code == 403:
+        raise RuntimeError(
+            "Finnhub ने इस endpoint की अनुमति नहीं दी (HTTP 403). "
+            "API key सही होने के बावजूद आपके Finnhub plan में यह endpoint "
+            "restricted हो सकता है, या key/endpoint permission की समस्या हो सकती है. "
+            "Finnhub dashboard में plan और endpoint access जाँचें. "
+            "यह app code से bypass नहीं किया जा सकता."
+        )
+    if response.status_code == 429:
+        raise RuntimeError(
+            "Finnhub rate limit (HTTP 429): थोड़ी देर बाद दोबारा कोशिश करें."
+        )
     response.raise_for_status()
     data = response.json()
 
     if isinstance(data, dict) and data.get("error"):
-        raise RuntimeError(data["error"])
+        raise RuntimeError(str(data["error"]))
 
     return data
 
@@ -921,6 +946,33 @@ def delete_chat(chat_id, user_id):
     con.commit()
     con.close()
 
+
+def save_feedback(user_id, chat_id, rating):
+    con = db()
+    con.execute(
+        """INSERT INTO ng_feedback(user_id,chat_id,rating,created_at)
+           VALUES(?,?,?,?)""",
+        (user_id, chat_id, rating, datetime.datetime.now().isoformat())
+    )
+    con.commit()
+    con.close()
+
+
+def remove_last_assistant_message(chat_id, user_id):
+    """Remove only the latest assistant response belonging to this user's chat."""
+    con = db()
+    row = con.execute(
+        """SELECT m.id FROM ng_messages m
+           JOIN ng_chats c ON c.id=m.chat_id
+           WHERE m.chat_id=? AND c.user_id=? AND m.role='assistant'
+           ORDER BY m.id DESC LIMIT 1""",
+        (chat_id, user_id)
+    ).fetchone()
+    if row:
+        con.execute("DELETE FROM ng_messages WHERE id=?", (row[0],))
+    con.commit()
+    con.close()
+
 # ============================================================
 # LOGIN / REGISTER SCREEN
 # ============================================================
@@ -1151,6 +1203,12 @@ def process_attachments(files):
 def chat_page():
     st.title("💬 AI Chat")
     st.caption("Your intelligent AI assistant")
+    st.info(
+        "Attachments are supported in the chat composer. Voice recording/transcription "
+        "is available in Voice Studio. A true continuous live call and custom mic/call "
+        "icons embedded inside this composer need a separate browser component and "
+        "realtime-audio service; this app does not pretend those are active."
+    )
 
     user_id = st.session_state.user_id
     chats = list_chats(user_id)
@@ -1220,21 +1278,40 @@ def chat_page():
             st.markdown(message["content"])
 
             if message["role"] == "assistant":
-                with st.expander("Response tools"):
-                    st.code(message["content"])
-
-                    if st.button("🔊 Read Aloud", key=f"read_{index}"):
+                action_cols = st.columns([1, 1, 1])
+                with action_cols[0]:
+                    with st.popover("📋 Copy"):
+                        st.code(message["content"], language=None)
+                        st.caption("Code/text block के copy icon से पूरा जवाब कॉपी करें.")
+                with action_cols[1]:
+                    if st.button("🔊 Read", key=f"read_{index}"):
                         try:
                             audio = text_to_speech(message["content"])
                             st.audio(audio, format="audio/mp3")
                         except Exception as e:
                             st.warning(str(e))
-
-                    if st.button("👍 Helpful", key=f"like_{index}"):
-                        st.toast("Thanks for your feedback!")
-
-                    if st.button("👎 Not helpful", key=f"dislike_{index}"):
-                        st.toast("Feedback noted.")
+                with action_cols[2]:
+                    fb1, fb2 = st.columns(2)
+                    if fb1.button("👍", key=f"like_{index}", help="Helpful"):
+                        try:
+                            save_feedback(
+                                st.session_state.user_id,
+                                st.session_state.chat_id,
+                                "positive"
+                            )
+                            st.toast("Feedback saved.")
+                        except Exception as e:
+                            st.warning(f"Feedback could not be saved: {e}")
+                    if fb2.button("👎", key=f"dislike_{index}", help="Not helpful"):
+                        try:
+                            save_feedback(
+                                st.session_state.user_id,
+                                st.session_state.chat_id,
+                                "negative"
+                            )
+                            st.toast("Feedback saved.")
+                        except Exception as e:
+                            st.warning(f"Feedback could not be saved: {e}")
 
     try:
         chat_input = st.chat_input(
@@ -2044,6 +2121,61 @@ def tools_page():
             except Exception as e:
                 st.error(str(e))
 
+
+
+# ============================================================
+# AI SKILL CENTER
+# ============================================================
+
+def skill_center_page():
+    st.title("🧠 AI Skill Center")
+    st.caption("Learn practical AI skills with guided, interactive lessons.")
+
+    tracks = {
+        "AI Fundamentals": [
+            "How AI works",
+            "Machine learning basics",
+            "Generative AI and LLMs",
+            "Prompt engineering",
+            "AI safety and fact-checking"
+        ],
+        "Build with AI": [
+            "Plan an AI project",
+            "Connect an API",
+            "Build a chatbot",
+            "Create a Streamlit app",
+            "Test and debug an AI app"
+        ],
+        "Digital Creator Skills": [
+            "Write video scripts",
+            "Create image prompts",
+            "Plan short-form videos",
+            "Create thumbnails",
+            "Responsible publishing"
+        ]
+    }
+
+    track = st.selectbox("Choose a learning track", list(tracks.keys()))
+    lesson = st.selectbox("Choose a lesson", tracks[track])
+    level = st.selectbox("Lesson level", ["Beginner", "Intermediate", "Advanced"])
+
+    if st.button("Start AI Skill Lesson", use_container_width=True):
+        try:
+            with st.spinner("Preparing your lesson..."):
+                answer, provider = ask_ai(
+                    f"""Teach this lesson as a clear course.
+Track: {track}
+Lesson: {lesson}
+Level: {level}
+Include: learning objectives, explanation, practical example,
+a safe mini-exercise, common mistakes, recap, and 5-question quiz.
+Do not claim an exercise was executed unless it actually was."""
+                )
+            st.markdown(answer)
+            st.caption("AI Engine: " + provider)
+        except Exception as e:
+            st.error(str(e))
+
 # ============================================================
 # SETTINGS
 # ============================================================
@@ -2102,6 +2234,7 @@ def about_page():
 - Voice Studio
 - Coding Academy
 - Study Academy
+- AI Skill Center
 - Video Production Planner
 - AI Tools
 
@@ -2131,6 +2264,7 @@ def main():
         "Voice Studio",
         "Coding Lab",
         "Study Assistant",
+        "AI Skill Center",
         "Video Studio",
         "AI Tools",
         "Settings",
@@ -2184,6 +2318,7 @@ def main():
         "Voice Studio": voice_page,
         "Coding Lab": coding_page,
         "Study Assistant": study_page,
+        "AI Skill Center": skill_center_page,
         "Video Studio": video_page,
         "AI Tools": tools_page,
         "Settings": settings_page,

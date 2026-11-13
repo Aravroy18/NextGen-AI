@@ -492,37 +492,42 @@ st.divider()
 if page == "Dashboard":
     st.title("🚀 Welcome to NEXTGEN AI")
 
-    st.metric("AI Assistant", "Ready")
-    st.metric("Web Search", "Always On")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("AI Assistant", "Ready")
+
+    with col2:
+        st.metric("Web Search", "Always On")
+
+    with col3:
+        st.metric("Account", st.session_state.get("username", "Guest"))
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),
         ("🌐 Current Affairs", "Explore recent news and events."),
-        ("🛠️ App Builder", "Plan and generate app code.")
+        ("🛠️ App Builder", "Plan and generate app code."),
+        ("💻 Coding School", "Learn programming."),
+        ("🌍 Language Learning", "Practise languages."),
+        ("📚 Study Assistant", "Understand school subjects."),
+        ("📄 PDF Assistant", "Ask questions about PDFs.")
     ]
 
-    cols = st.columns(2)
+    for i in range(0, len(cards), 2):
+        col1, col2 = st.columns(2)
 
-    for i, (title, desc) in enumerate(cards):
-        with cols[i % 2]:
-            st.markdown(
-                f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
-                unsafe_allow_html=True
-            )
+        with col1:
+            title, desc = cards[i]
+            st.markdown(f"### {title}")
+            st.write(desc)
 
-elif page == "AI Chat":
-    st.title("💬 AI Chat")
+        if i + 1 < len(cards):
+            with col2:
+                title, desc = cards[i + 1]
+                st.markdown(f"### {title}")
+                st.write(desc)
 
-# ================= CHAT =================
-elif page == "AI Chat":
-
-
-# ================= CHAT =================
-elif page == "AI Chat":
-    st.title("💬 AI Chat")
-
-
-# ================= CHAT =================
+# ================= AI CHAT =================
 elif page == "AI Chat":
     st.title("💬 AI Chat")
 

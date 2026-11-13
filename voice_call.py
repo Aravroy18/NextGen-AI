@@ -23,7 +23,18 @@ VOICES = [
     "marin",
     "cedar",
 ]
-
+REALTIME_VOICES = [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar"
+]
 
 def get_api_key():
     return os.getenv("OPENAI_API_KEY", "").strip()

@@ -407,7 +407,7 @@ with st.sidebar:
     st.markdown('<div class="main-title">NEXTGEN AI</div>',
                 unsafe_allow_html=True)
     st.caption("Your Creative Universe")
-    st.write("👤 " + st.session_state.username)
+       st.write("👤 " + st.session_state.username)
 
     if st.button("＋ New Chat", use_container_width=True):
         if st.session_state.user_id:
@@ -430,7 +430,7 @@ with st.sidebar:
                 st.session_state.cid = options[selected]
                 st.rerun()
 
-          st.divider()
+    st.divider()
 
     st.metric("AI Assistant", "Ready")
     st.metric("Web Search", "Always On")

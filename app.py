@@ -433,9 +433,9 @@ with st.sidebar:
     st.divider()
 
    
-    a.metric("AI Assistant", "Ready")
-    b.metric("Web Search", "Always On")
-    c.metric("Account", st.session_state.username)
+    st.metric("AI Assistant", "Ready")
+    st.metric("Web Search", "Always On")
+st.metric("Account", st.session_state.get("username", "Guest"))
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),

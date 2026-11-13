@@ -489,9 +489,34 @@ st.caption("One Platform. Endless Possibilities.")
 st.divider()
 
 # ================= DASHBOARD =================
+# ================= DASHBOARD =================
 if page == "Dashboard":
     st.title("🚀 Welcome to NEXTGEN AI")
-    a,b,c = st.columns(3)
+
+    a, b, c = st.columns(3)
+
+    a.metric("AI Assistant", "Ready")
+    b.metric("Web Search", "Always On")
+    c.metric("Account", st.session_state.get("username", "Guest"))
+
+    cards = [
+        ("💬 AI Chat", "Ask questions and get AI answers."),
+        ("🌐 Current Affairs", "Explore recent news and events."),
+        ("🛠️ App Builder", "Plan and generate app code."),
+        ("💻 Coding School", "Learn programming from zero."),
+        ("🌍 Languages", "Practise English and other languages."),
+        ("📚 Study Assistant", "Understand school subjects."),
+        ("📄 PDF Assistant", "Ask questions about documents.")
+    ]
+
+    cols = st.columns(2)
+
+    for i, (title, desc) in enumerate(cards):
+        with cols[i % 2]:
+            st.markdown(
+                f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
+                unsafe_allow_html=True
+            )
 
 # ================= CHAT =================
 elif page == "AI Chat":

@@ -7,3 +7,13 @@ requests
 pandas
 groq
 gTTS
+streamlit
+plotly
+pandas
+numpy
+requests
+python-dotenv
+groq
+google-genai
+pypdf
+gTTS

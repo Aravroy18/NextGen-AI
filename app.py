@@ -404,57 +404,40 @@ if not st.session_state.logged_in:
 
 # ================= SIDEBAR =================
 with st.sidebar:
-    st.markdown('<div class="main-title">NEXTGEN AI</div>',
-                unsafe_allow_html=True)
-    st.caption("Your Creative Universe")
-      st.write("👤 " + st.session_state.username)
 
-if st.button("＋ New Chat", use_container_width=True):
-    if st.session_state.user_id:
-        st.session_state.cid = new_conversation(
-            st.session_state.user_id
-        )
-    else:
-        st.session_state.guest_messages = []
-    st.rerun()
+    st.write("👤 " + st.session_state.username)
+
+    if st.button("＋ New Chat", use_container_width=True):
+        if st.session_state.user_id:
+            st.session_state.cid = new_conversation(
+                st.session_state.user_id
+            )
+        else:
+            st.session_state.guest_messages = []
+
+        st.rerun()
 
     if st.session_state.user_id:
         chats = list_conversations(st.session_state.user_id)
+
         if chats:
             options = {
                 f"{title} · {date[:10]}": cid
                 for cid, title, date in chats
             }
-            selected = st.selectbox("Chat History", list(options.keys()))
+
+            selected = st.selectbox(
+                "Chat History",
+                list(options.keys())
+            )
+
             if options[selected] != st.session_state.cid:
                 st.session_state.cid = options[selected]
                 st.rerun()
 
     st.divider()
 
-    st.metric("AI Assistant", "Ready")
-    st.metric("Web Search", "Always On")
-    st.metric("Account", st.session_state.get("username", "Guest"))
-
-    cards = [
-        ("💬 AI Chat", "Ask questions and get AI answers."),
-        ("🌐 Current Affairs", "Explore recent news and events."),
-        ("🛠️ App Builder", "Plan and generate app code."),
-        ("💻 Coding School", "Learn programming from zero."),
-        ("🌍 Languages", "Practise English and other languages."),
-        ("📚 Study Assistant", "Understand school subjects."),
-        ("📄 PDF Assistant", "Ask questions about documents."),
-        ("🎙️ Live Voice", "Animated voice interface.")
-    ]
-
-    cols = st.columns(2)
-
-    for i, (title, desc) in enumerate(cards):
-        with cols[i % 2]:
-            st.markdown(
-                f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
-                unsafe_allow_html=True
-            )
+# ================= NAVIGATION =================
 page = st.radio(
     "NAVIGATION",
     [
@@ -483,13 +466,17 @@ if st.button("Logout"):
     st.rerun()
 
 # ================= HEADER =================
-st.markdown('<div class="main-title">NEXTGEN AI</div>',
-            unsafe_allow_html=True)
+st.markdown(
+    '<div class="main-title">NEXTGEN AI</div>',
+    unsafe_allow_html=True
+)
+
 st.caption("One Platform. Endless Possibilities.")
 st.divider()
 
 # ================= DASHBOARD =================
 if page == "Dashboard":
+
     st.title("🚀 Welcome to NEXTGEN AI")
 
     col1, col2, col3 = st.columns(3)
@@ -501,31 +488,30 @@ if page == "Dashboard":
         st.metric("Web Search", "Always On")
 
     with col3:
-        st.metric("Account", st.session_state.get("username", "Guest"))
+        st.metric(
+            "Account",
+            st.session_state.get("username", "Guest")
+        )
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),
         ("🌐 Current Affairs", "Explore recent news and events."),
         ("🛠️ App Builder", "Plan and generate app code."),
-        ("💻 Coding School", "Learn programming."),
-        ("🌍 Language Learning", "Practise languages."),
+        ("💻 Coding School", "Learn programming from zero."),
+        ("🌍 Languages", "Practise English and other languages."),
         ("📚 Study Assistant", "Understand school subjects."),
-        ("📄 PDF Assistant", "Ask questions about PDFs.")
+        ("📄 PDF Assistant", "Ask questions about documents."),
+        ("🎙️ Live Voice", "Animated voice interface.")
     ]
 
-    for i in range(0, len(cards), 2):
-        col1, col2 = st.columns(2)
+    cols = st.columns(2)
 
-        with col1:
-            title, desc = cards[i]
-            st.markdown(f"### {title}")
-            st.write(desc)
-
-        if i + 1 < len(cards):
-            with col2:
-                title, desc = cards[i + 1]
-                st.markdown(f"### {title}")
-                st.write(desc)
+    for i, (title, desc) in enumerate(cards):
+        with cols[i % 2]:
+            st.markdown(
+                f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
+                unsafe_allow_html=True
+            )
 
 # ================= AI CHAT =================
 elif page == "AI Chat":

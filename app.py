@@ -452,12 +452,9 @@ with st.sidebar:
         ]
     )
 
-answer, sources = ai_reply(
-    history,
-    search_enabled=True
-)
 
-    if st.button("Logout"):
+
+        if st.button("Logout"):
         for key in ["logged_in", "user_id", "cid"]:
             st.session_state[key] = False if key == "logged_in" else None
         st.session_state.username = "Guest"
@@ -474,7 +471,7 @@ if page == "Dashboard":
     st.title("🚀 Welcome to NEXTGEN AI")
     a,b,c = st.columns(3)
     a.metric("AI Assistant", "Ready")
-    b.metric("Web Search", "Enabled" if st.session_state.search_enabled else "Off")
+    b.metric("Web Search", "Always On")
     c.metric("Account", st.session_state.username)
 
     cards = [

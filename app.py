@@ -8,8 +8,8 @@ import streamlit as st
 from datetime import datetime
 
 # =====================================================
-# NEXTGEN AI V7
-# Same V6 design + Creator Profile + 300+ AI Tools
+# NEXTGEN AI V7.1
+# Original V7 design + Dashboard improvements
 # =====================================================
 
 st.set_page_config(
@@ -37,7 +37,6 @@ CF_ACCOUNT = get_secret("CLOUDFLARE_ACCOUNT_ID")
 CF_TOKEN = get_secret("CLOUDFLARE_API_TOKEN")
 CF_LIVE_URL = get_secret("CLOUDFLARE_VOICE_URL")
 
-# Same database to preserve previous chats.
 DB_PATH = "nextgen_v5.db"
 
 SYSTEM_PROMPT = """
@@ -140,7 +139,7 @@ init_db()
 
 def groq_request(messages):
     if not GROQ_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing.")
+        raise RuntimeError("AI service is not configured.")
 
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -165,13 +164,13 @@ def groq_request(messages):
     answer = result["choices"][0]["message"]["content"]
 
     if not answer:
-        raise RuntimeError("Groq returned an empty response.")
+        raise RuntimeError("AI returned an empty response.")
 
     return answer
 
 def gemini_request(messages):
     if not GEMINI_KEY:
-        raise RuntimeError("GEMINI_API_KEY is missing.")
+        raise RuntimeError("Backup service is not configured.")
 
     contents = []
 
@@ -209,28 +208,26 @@ def gemini_request(messages):
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 def ask_ai(messages):
-    # Groq first; one Gemini backup attempt.
     try:
-        return groq_request(messages), "Groq"
+        return groq_request(messages), "Primary"
     except Exception as main_error:
         if not GEMINI_KEY:
             raise RuntimeError(
-                f"Groq failed; Gemini backup key is missing. {main_error}"
+                "NEXTGEN AI could not respond. Please check the service configuration."
             )
 
         try:
-            return gemini_request(messages), "Gemini Backup"
-        except Exception as backup_error:
+            return gemini_request(messages), "Backup"
+        except Exception:
             raise RuntimeError(
-                f"Groq failed: {main_error}\n"
-                f"Gemini backup failed: {backup_error}"
+                "NEXTGEN AI is temporarily unavailable. Please try again."
             )
 
-# ---------------- CLOUDFLARE IMAGE ----------------
+# ---------------- IMAGE GENERATION ----------------
 
 def cloudflare_image(prompt):
     if not CF_ACCOUNT or not CF_TOKEN:
-        raise RuntimeError("Cloudflare credentials are missing.")
+        raise RuntimeError("Image generation is not configured.")
 
     url = (
         "https://api.cloudflare.com/client/v4/accounts/"
@@ -254,7 +251,7 @@ def cloudflare_image(prompt):
     image_data = data.get("result", {}).get("image")
 
     if not image_data:
-        raise RuntimeError(str(data))
+        raise RuntimeError("Image generation returned no image.")
 
     return base64.b64decode(image_data)
 
@@ -262,7 +259,7 @@ def cloudflare_image(prompt):
 
 def transcribe_audio(audio_file):
     if not GROQ_KEY:
-        raise RuntimeError("Groq key is missing for transcription.")
+        raise RuntimeError("Voice transcription is not configured.")
 
     response = requests.post(
         "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -283,7 +280,6 @@ def transcribe_audio(audio_file):
 
 # =====================================================
 # AI TOOL LIBRARY
-# All these are prompt-based tools using the AI engine.
 # =====================================================
 
 TOOL_LIBRARY = {
@@ -872,19 +868,20 @@ div[data-testid="stChatMessage"] {
     width: 100%;
 }
 
-[data-testid="stChatInput"] {
+.st-key-nextgen_chat_input [data-testid="stChatInput"] {
     border: 1px solid #515b7d !important;
-    border-radius: 24px !important;
+    border-radius: 22px !important;
     background: #111a2c !important;
     box-shadow: 0 5px 25px #0004;
+    overflow: hidden;
 }
 
-[data-testid="stChatInput"] textarea {
+.st-key-nextgen_chat_input [data-testid="stChatInput"] textarea {
     color: white !important;
     font-size: 14px !important;
 }
 
-[data-testid="stChatInput"] button {
+.st-key-nextgen_chat_input [data-testid="stChatInput"] button {
     border-radius: 50% !important;
 }
 
@@ -1016,7 +1013,7 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown(
-        '<div class="small-muted">NEXTGEN AI V7.0<br>'
+        '<div class="small-muted">NEXTGEN AI V7.1<br>'
         'Created by Arav</div>',
         unsafe_allow_html=True
     )
@@ -1024,7 +1021,7 @@ with st.sidebar:
 page = st.session_state.page
 
 # =====================================================
-# DASHBOARD - ORIGINAL V6 DESIGN PRESERVED
+# DASHBOARD
 # =====================================================
 
 if page == "Dashboard":
@@ -1044,23 +1041,23 @@ if page == "Dashboard":
         unsafe_allow_html=True
     )
 
-    a,b,c,d = st.columns(4)
+    a, b, c, d = st.columns(4)
 
     with a:
-        metric("MAIN AI", "GROQ", "Primary assistant")
+        metric("AI CHAT", "READY", "Your intelligent assistant")
 
     with b:
-        metric("BACKUP AI", "GEMINI", "One automatic fallback")
+        metric("IMAGE STUDIO", "CREATE", "Turn ideas into images")
 
     with c:
-        metric("IMAGE AI", "CLOUDFLARE", "FLUX image generation")
+        metric("PDF ASSISTANT", "EXPLORE", "Ask questions from documents")
 
     with d:
-        metric("AI TOOLBOX", f"{TOOL_COUNT}+", "AI tool presets")
+        metric("AI TOOLBOX", f"{TOOL_COUNT}+", "Tools across multiple categories")
 
     st.markdown("## Explore your workspace")
 
-    left,right = st.columns(2, gap="large")
+    left, right = st.columns(2, gap="large")
 
     with left:
 
@@ -1068,7 +1065,7 @@ if page == "Dashboard":
             '<div class="dash-feature">'
             '<div class="dash-kicker">CONVERSATION</div>'
             '<h3>✦ AI Chat</h3>'
-            '<p>Chat with NEXTGEN AI using the compact composer, attachments and microphone.</p>'
+            '<p>Ask questions, get explanations, write content and explore ideas with NEXTGEN AI.</p>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1081,7 +1078,7 @@ if page == "Dashboard":
             '<div class="dash-feature">'
             '<div class="dash-kicker">CREATION</div>'
             '<h3>▧ AI Image Studio</h3>'
-            '<p>Turn your text prompts into images with Cloudflare FLUX.</p>'
+            '<p>Bring your imagination to life with AI image generation.</p>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1096,7 +1093,7 @@ if page == "Dashboard":
             '<div class="dash-feature">'
             '<div class="dash-kicker">PRODUCTIVITY</div>'
             '<h3>⌕ AI Tool Center</h3>'
-            '<p>Find a purpose-built AI helper for hundreds of different tasks.</p>'
+            '<p>Discover helpful AI tools for study, coding, writing, business and creativity.</p>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1109,7 +1106,7 @@ if page == "Dashboard":
             '<div class="dash-feature">'
             '<div class="dash-kicker">DOCUMENTS</div>'
             '<h3>▤ PDF Assistant</h3>'
-            '<p>Upload a PDF and ask questions about its extracted text.</p>'
+            '<p>Upload documents and ask questions about their contents.</p>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1121,14 +1118,16 @@ if page == "Dashboard":
     st.markdown("## Built for your workflow")
 
     st.markdown("""
-    - **AI Chat:** Groq-powered assistant with automatic Gemini backup.
-    - **AI Tool Center:** Task presets that generate results through the AI engine.
-    - **AI Image Studio:** Cloudflare FLUX image generation.
-    - **Chat History:** Conversations saved in the existing SQLite database.
+    - **AI Chat:** Your everyday assistant for questions and ideas.
+    - **AI Tool Center:** Hundreds of task-focused AI tools.
+    - **AI Image Studio:** Create images from text prompts.
+    - **PDF Assistant:** Understand and explore your documents.
+    - **Chat History:** Return to your saved conversations.
+    - **My Creations:** Your creative workspace.
     """)
 
 # =====================================================
-# AI CHAT - ORIGINAL DESIGN PRESERVED
+# AI CHAT
 # =====================================================
 
 elif page == "AI Chat":
@@ -1159,7 +1158,7 @@ elif page == "AI Chat":
                 st.button(
                     "◉ Live",
                     disabled=True,
-                    help="Add CLOUDFLARE_VOICE_URL in Streamlit Secrets.",
+                    help="Live voice is not configured.",
                     use_container_width=True
                 )
 
@@ -1205,14 +1204,14 @@ elif page == "AI Chat":
                     file_context += "\n\n[Attached PDF]\n"
                     file_context += extracted[:25000]
 
-                except Exception as e:
-                    st.warning(f"Could not read {uploaded.name}: {e}")
+                except Exception:
+                    st.warning(f"Could not read {uploaded.name}.")
 
             elif filename.endswith((".png", ".jpg", ".jpeg")):
 
                 st.info(
-                    f"{uploaded.name} attached. Image understanding "
-                    "is not enabled in this text-chat build."
+                    f"{uploaded.name} attached. "
+                    "Image understanding is not enabled in this version."
                 )
 
         if submitted.audio is not None:
@@ -1223,8 +1222,8 @@ elif page == "AI Chat":
                     voice_text = transcribe_audio(submitted.audio)
                     user_text = (user_text + "\n" + voice_text).strip()
 
-                except Exception as e:
-                    st.error(f"Voice transcription failed: {e}")
+                except Exception:
+                    st.error("Voice transcription failed.")
 
         user_text = (user_text + file_context).strip()
 
@@ -1267,8 +1266,7 @@ elif page == "AI Chat":
             st.rerun()
 
     st.caption(
-        f"Response engine: {st.session_state.last_provider} "
-        "• Plus and Mic are built into the chat input."
+        "NEXTGEN AI is ready • Attachments and microphone are available in the chat input."
     )
 
 # =====================================================
@@ -1279,7 +1277,7 @@ elif page == "AI Image Studio":
 
     hero(
         "AI Image Studio",
-        "Bring your imagination to life with Cloudflare FLUX."
+        "Bring your imagination to life with AI image generation."
     )
 
     st.markdown("### Describe your image")
@@ -1326,11 +1324,11 @@ elif page == "AI Image Studio":
                         mime="image/jpeg"
                     )
 
-                except Exception as e:
-                    st.error(f"Image generation failed: {e}")
+                except Exception:
+                    st.error("Image generation failed. Please check your configuration.")
 
 # =====================================================
-# TOOL CENTER - CATEGORY AND TOOL DROPDOWNS
+# TOOL CENTER
 # =====================================================
 
 elif page == "Tool Center":
@@ -1395,12 +1393,11 @@ elif page == "Tool Center":
                     st.session_state.tool_result = {
                         "tool": tool_name,
                         "category": category,
-                        "result": result,
-                        "provider": provider
+                        "result": result
                     }
 
-                except Exception as e:
-                    st.error(f"Tool failed: {e}")
+                except Exception:
+                    st.error("The tool could not complete your request.")
 
     if st.session_state.tool_result:
 
@@ -1411,10 +1408,6 @@ elif page == "Tool Center":
 
         st.markdown(st.session_state.tool_result["result"])
 
-        st.caption(
-            f"Generated by {st.session_state.tool_result['provider']}"
-        )
-
         st.download_button(
             "↓ Download result as TXT",
             data=st.session_state.tool_result["result"],
@@ -1423,9 +1416,7 @@ elif page == "Tool Center":
         )
 
     st.caption(
-        f"{TOOL_COUNT} prompt-based tool presets across "
-        f"{len(TOOL_LIBRARY)} categories. "
-        "Tools use Groq first and Gemini as backup."
+        f"{TOOL_COUNT} AI tools across {len(TOOL_LIBRARY)} categories."
     )
 
 # =====================================================
@@ -1482,13 +1473,13 @@ elif page == "PDF Assistant":
                         }])
 
                     st.markdown(answer)
-                    st.caption(provider)
+                    st.caption("NEXTGEN AI document assistant")
 
                 else:
                     st.warning("Type a question first.")
 
-        except Exception as e:
-            st.error(f"PDF error: {e}")
+        except Exception:
+            st.error("Could not read this PDF. Please try another file.")
 
 # =====================================================
 # CHAT HISTORY
@@ -1560,41 +1551,40 @@ elif page == "Settings":
 
     hero(
         "Settings",
-        "Your AI platform configuration."
+        "Manage your NEXTGEN AI workspace."
     )
 
-    st.markdown("### AI Routing")
+    st.markdown("### Your Workspace")
 
-    st.success(f"Main: Groq — {GROQ_MODEL}")
-    st.success(f"Backup: Gemini — {GEMINI_MODEL}")
-
-    st.caption(
-        "Gemini is called only once if the Groq request fails."
+    panel(
+        "✦",
+        "NEXTGEN AI",
+        "Your AI workspace for conversations, creativity, learning and productivity."
     )
 
-    st.markdown("### Image Generation")
-    st.info(f"Cloudflare model: {IMAGE_MODEL}")
-
-    st.markdown("### Live Voice")
-
-    if CF_LIVE_URL:
-        st.success("Cloudflare Voice Agent URL configured.")
-    else:
-        st.warning("Cloudflare Voice Agent URL is not configured.")
-
-    st.markdown("### Tool Center")
-
-    st.info(
-        f"{TOOL_COUNT} AI tool presets in "
-        f"{len(TOOL_LIBRARY)} categories."
+    panel(
+        "◷",
+        "Chat History",
+        "Your conversations are available from the Chat History section."
     )
 
-    st.caption(
-        "Manage API credentials in Streamlit Cloud → Settings → Secrets."
+    panel(
+        "▧",
+        "Creative Studio",
+        "Explore AI Image Studio and create images from text prompts."
     )
+
+    panel(
+        "⌕",
+        "AI Tool Center",
+        f"Explore {TOOL_COUNT}+ AI tool presets across {len(TOOL_LIBRARY)} categories."
+    )
+
+    st.markdown("---")
+    st.caption("NEXTGEN AI V7.1")
 
 # =====================================================
-# ABOUT - CREATOR PROFILE
+# ABOUT
 # =====================================================
 
 elif page == "About":
@@ -1642,17 +1632,6 @@ elif page == "About":
     - Coding and development assistance
     - Content creation tools
     - Productivity and planning tools
-
-    ### Technology Behind NEXTGEN AI
-
-    | Technology | Purpose |
-    |---|---|
-    | Groq | Main AI engine |
-    | Gemini | Backup AI engine |
-    | Cloudflare | Image generation |
-    | Python | Application development |
-    | Streamlit | User interface |
-    | SQLite | Chat history storage |
 
     ### The Vision
 

@@ -447,7 +447,6 @@ with st.sidebar:
             "AI Vision",
             "AI Image Studio",
             "Video Prompt Studio",
-            "Live Voice",
             "Chat History",
             "About"
         ]

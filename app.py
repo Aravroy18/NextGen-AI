@@ -489,15 +489,12 @@ st.caption("One Platform. Endless Possibilities.")
 st.divider()
 
 # ================= DASHBOARD =================
-# ================= DASHBOARD =================
 if page == "Dashboard":
     st.title("🚀 Welcome to NEXTGEN AI")
 
-    a, b, c = st.columns(3)
-
-    a.metric("AI Assistant", "Ready")
-    b.metric("Web Search", "Always On")
-    c.metric("Account", st.session_state.get("username", "Guest"))
+    st.metric("AI Assistant", "Ready")
+st.metric("Web Search", "Always On")
+st.metric("Account", st.session_state.get("username", "Guest"))
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),

@@ -430,7 +430,7 @@ with st.sidebar:
                 st.session_state.cid = options[selected]
                 st.rerun()
 
-       st.divider()
+          st.divider()
 
     st.metric("AI Assistant", "Ready")
     st.metric("Web Search", "Always On")

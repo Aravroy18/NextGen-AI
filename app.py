@@ -517,6 +517,10 @@ if page == "Dashboard":
 
 # ================= CHAT =================
 elif page == "AI Chat":
+
+
+# ================= CHAT =================
+elif page == "AI Chat":
     st.title("💬 AI Chat")
 
 

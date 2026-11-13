@@ -455,10 +455,11 @@ with st.sidebar:
 
 
         if st.button("Logout"):
-        for key in ["logged_in", "user_id", "cid"]:
-            st.session_state[key] = False if key == "logged_in" else None
-        st.session_state.username = "Guest"
-        st.rerun()
+    for key in ["logged_in", "user_id", "cid"]:
+        st.session_state[key] = False if key == "logged_in" else None
+
+    st.session_state.username = "Guest"
+    st.rerun()
 
 # ================= HEADER =================
 st.markdown('<div class="main-title">NEXTGEN AI</div>',

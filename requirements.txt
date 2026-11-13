@@ -17,3 +17,14 @@ groq
 google-genai
 pypdf
 gTTS
+streamlit>=1.41.0
+plotly
+pandas
+numpy
+requests
+python-dotenv
+groq
+google-genai
+pypdf
+gTTS
+extra-streamlit-components

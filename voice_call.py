@@ -1,51 +1,140 @@
-
 import os
-import datetime
-from google import genai
-
-LIVE_MODEL = "gemini-3.8-live"
+import requests
 
 
-def create_live_token(api_key=None):
+OPENAI_BASE = "https://api.openai.com/v1"
 
-    api_key = api_key or os.getenv("GEMINI_API_KEY")
+REALTIME_MODEL = "gpt-realtime"
 
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY missing.")
+TTS_MODEL = "gpt-4o-mini-tts"
 
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"api_version": "v1beta"}
-    )
+VOICES = [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar",
+]
 
-    now = datetime.datetime.now(datetime.timezone.utc)
 
-    expire_time = (
-        now + datetime.timedelta(minutes=30)
-    ).isoformat().replace("+00:00", "Z")
+def get_api_key():
+    return os.getenv("OPENAI_API_KEY", "").strip()
 
-    new_session_expire_time = (
-        now + datetime.timedelta(minutes=1)
-    ).isoformat().replace("+00:00", "Z")
 
-    token = client.auth_tokens.create(
-        config={
-            "uses": 1,
-            "expire_time": expire_time,
-            "new_session_expire_time": new_session_expire_time,
-            "live_connect_constraints": {
-                "model": LIVE_MODEL,
-                "config": {
-                    "response_modalities": ["AUDIO"],
-                    "input_audio_transcription": {},
-                    "output_audio_transcription": {},
-                    "session_resumption": {}
+def create_client_secret(voice="marin"):
+    key = get_api_key()
+
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is missing.")
+
+    if voice not in VOICES:
+        voice = "marin"
+
+    payload = {
+        "expires_after": {
+            "anchor": "created_at",
+            "seconds": 600
+        },
+        "session": {
+            "type": "realtime",
+            "model": REALTIME_MODEL,
+            "instructions": (
+                "You are NEXTGEN AI, a helpful, natural and friendly "
+                "AI assistant. Speak clearly and naturally. "
+                "Use Hindi when the user speaks Hindi and English "
+                "when the user speaks English. Keep answers useful."
+            ),
+            "audio": {
+                "output": {
+                    "voice": voice
+                },
+                "input": {
+                    "turn_detection": {
+                        "type": "server_vad"
+                    },
+                    "transcription": {
+                        "model": "gpt-4o-mini-transcribe",
+                        "language": "hi"
+                    }
                 }
             }
         }
+    }
+
+    response = requests.post(
+        f"{OPENAI_BASE}/realtime/client_secrets",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        },
+        json=payload,
+        timeout=30
     )
 
-    if not token.name:
-        raise RuntimeError("Gemini Live token generation failed.")
+    if not response.ok:
+        raise RuntimeError(
+            f"Realtime token error: {response.status_code} "
+            f"{response.text[:500]}"
+        )
 
-    return token.name
+    data = response.json()
+
+    token = data.get("value")
+
+    if not token:
+        raise RuntimeError("No client token returned.")
+
+    return token
+
+
+def generate_speech(
+    text,
+    voice="nova",
+    speed=1.15,
+    instructions="Speak naturally, clearly and confidently."
+):
+    key = get_api_key()
+
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is missing.")
+
+    if not text.strip():
+        raise ValueError("Text cannot be empty.")
+
+    if voice not in VOICES:
+        voice = "nova"
+
+    speed = max(0.25, min(float(speed), 4.0))
+
+    response = requests.post(
+        f"{OPENAI_BASE}/audio/speech",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": TTS_MODEL,
+            "voice": voice,
+            "input": text[:4096],
+            "speed": speed,
+            "instructions": instructions,
+            "response_format": "mp3"
+        },
+        timeout=90
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"Speech API error: {response.status_code} "
+            f"{response.text[:500]}"
+        )
+
+    return response.content

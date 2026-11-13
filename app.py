@@ -500,9 +500,9 @@ st.markdown(
 st.caption("One Platform. Endless Possibilities.")
 st.divider()
 
+
 # ================= DASHBOARD =================
 if page == "Dashboard":
-
     st.title("🚀 Welcome to NEXTGEN AI")
 
     col1, col2, col3 = st.columns(3)
@@ -511,7 +511,7 @@ if page == "Dashboard":
         st.metric("AI Assistant", "Ready")
 
     with col2:
-        st.metric("Web Search", "Always On")
+        st.metric("Web Search", "Automatic")
 
     with col3:
         st.metric(
@@ -519,27 +519,18 @@ if page == "Dashboard":
             st.session_state.get("username", "Guest")
         )
 
-    
+    cards = [
+        ("💬 AI Chat", "Ask questions and get AI answers."),
+        ("🌐 Current Affairs", "Explore recent news and events."),
+        ("🛠️ App Builder", "Plan and generate app code."),
+        ("💻 Coding School", "Learn programming from zero."),
+        ("🌍 Language Learning", "Practise different languages."),
+        ("📚 Study Assistant", "Understand school subjects."),
+        ("📄 PDF Assistant", "Ask questions about documents.")
+    ]
 
     cols = st.columns(2)
-cards = [
-    ("💬 AI Chat", "Ask questions and get AI answers."),
-    ("🌐 Current Affairs", "Explore recent news and events."),
-    ("🛠️ App Builder", "Plan and generate app code."),
-    ("💻 Coding School", "Learn programming from zero."),
-    ("🌍 Language Learning", "Practise different languages."),
-    ("📚 Study Assistant", "Understand school subjects."),
-    ("📄 PDF Assistant", "Ask questions about documents.")
-]
 
-cols = st.columns(2)
-
-for i, (title, desc) in enumerate(cards):
-    with cols[i % 2]:
-        st.markdown(
-            f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
-            unsafe_allow_html=True
-        )
     for i, (title, desc) in enumerate(cards):
         with cols[i % 2]:
             st.markdown(
@@ -553,7 +544,7 @@ elif page == "AI Chat":
 
     if st.session_state.user_id and st.session_state.cid:
         history_rows = read_messages(st.session_state.cid)
-        history = [{"role": r, "content": c} for r,c in history_rows]
+        history = [{"role": r, "content": c} for r, c in history_rows]
     else:
         history = st.session_state.guest_messages
 

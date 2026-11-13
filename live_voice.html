@@ -4,113 +4,112 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NEXTGEN AI - Live Voice</title>
+<title>NEXTGEN AI Live Voice</title>
 
 <style>
-    body {
-        margin: 0;
-        padding: 20px;
-        background: #080817;
-        color: white;
-        font-family: Arial, sans-serif;
-    }
+* { box-sizing: border-box; }
 
-    .container {
-        max-width: 700px;
-        margin: auto;
-        padding: 22px;
-        background: #15152e;
-        border: 1px solid #454078;
-        border-radius: 18px;
-    }
+body {
+    margin: 0;
+    padding: 20px;
+    background: #080817;
+    color: white;
+    font-family: Arial, sans-serif;
+}
 
-    h2 {
-        color: #a78bfa;
-        text-align: center;
-    }
+.container {
+    max-width: 700px;
+    margin: auto;
+    padding: 22px;
+    background: #15152e;
+    border: 1px solid #454078;
+    border-radius: 20px;
+    text-align: center;
+}
 
-    #status {
-        padding: 12px;
-        margin: 15px 0;
-        background: #252545;
-        border-radius: 10px;
-        text-align: center;
-    }
+h2 { color: #a78bfa; }
 
-    .buttons {
-        display: flex;
-        gap: 10px;
-        justify-content: center;
-        flex-wrap: wrap;
-    }
+.orb {
+    width: 125px;
+    height: 125px;
+    margin: 25px auto;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%,
+        #e9d5ff, #8b5cf6 40%, #312e81 75%);
+    box-shadow: 0 0 30px #8b5cf6, 0 0 70px #4f46e5;
+    animation: pulse 1.8s infinite ease-in-out;
+}
 
-    button {
-        padding: 12px 20px;
-        border: none;
-        border-radius: 10px;
-        color: white;
-        font-weight: bold;
-        cursor: pointer;
-    }
+@keyframes pulse {
+    0%,100% { transform: scale(.92); }
+    50% { transform: scale(1.08); }
+}
 
-    #startBtn {
-        background: #7c3aed;
-    }
+#status {
+    padding: 12px;
+    margin: 15px 0;
+    background: #252545;
+    border-radius: 10px;
+}
 
-    #stopBtn {
-        background: #dc2626;
-    }
+.buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
 
-    button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
+button {
+    padding: 13px 20px;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
 
-    #conversation {
-        margin-top: 20px;
-        padding: 15px;
-        min-height: 180px;
-        max-height: 300px;
-        overflow-y: auto;
-        background: #0b0b20;
-        border-radius: 10px;
-        white-space: pre-wrap;
-    }
+#startBtn { background: #7c3aed; }
+#stopBtn { background: #dc2626; }
 
-    .user {
-        color: #93c5fd;
-        margin-bottom: 12px;
-    }
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
 
-    .assistant {
-        color: #c4b5fd;
-        margin-bottom: 12px;
-    }
+#conversation {
+    margin-top: 20px;
+    padding: 15px;
+    min-height: 180px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #0b0b20;
+    border-radius: 10px;
+    text-align: left;
+    white-space: pre-wrap;
+}
+
+.user { color: #93c5fd; margin-bottom: 12px; }
+.assistant { color: #c4b5fd; margin-bottom: 12px; }
 </style>
 </head>
 
 <body>
 
 <div class="container">
-
     <h2>🚀 NEXTGEN AI LIVE VOICE</h2>
+
+    <div class="orb"></div>
 
     <div id="status">Status: Not Connected</div>
 
     <div class="buttons">
-        <button id="startBtn" onclick="startCall()">
-            📞 Start Live Call
-        </button>
-
-        <button id="stopBtn" onclick="stopCall()" disabled>
-            ⏹ Stop Call
-        </button>
+        <button id="startBtn">📞 Start Live Call</button>
+        <button id="stopBtn" disabled>⏹ Stop Call</button>
     </div>
 
     <div id="conversation">
         Your live conversation will appear here.
     </div>
-
 </div>
 
 <script>
@@ -162,10 +161,7 @@ function floatToPCM16(floatData) {
 
     for (let i = 0; i < floatData.length; i++) {
         const sample = Math.max(-1, Math.min(1, floatData[i]));
-
-        pcm[i] = sample < 0
-            ? sample * 32768
-            : sample * 32767;
+        pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
     }
 
     return pcm;
@@ -174,9 +170,7 @@ function floatToPCM16(floatData) {
 function resampleTo16k(input, sourceRate) {
     const targetRate = 16000;
 
-    if (sourceRate === targetRate) {
-        return input;
-    }
+    if (sourceRate === targetRate) return input;
 
     const outputLength = Math.floor(
         input.length * targetRate / sourceRate
@@ -201,9 +195,7 @@ function resampleTo16k(input, sourceRate) {
 
 function pcmToBase64(pcm) {
     const bytes = new Uint8Array(
-        pcm.buffer,
-        pcm.byteOffset,
-        pcm.byteLength
+        pcm.buffer, pcm.byteOffset, pcm.byteLength
     );
 
     let binary = "";
@@ -213,143 +205,6 @@ function pcmToBase64(pcm) {
     }
 
     return btoa(binary);
-}
-
-async function startCall() {
-    try {
-        if (!TOKEN || TOKEN === "__LIVE_TOKEN__") {
-            setStatus("Live token missing. Generate a fresh token.");
-            return;
-        }
-
-        startBtn.disabled = true;
-        setStatus("Connecting to Gemini...");
-
-        outputContext = new AudioContext({
-            sampleRate: 24000
-        });
-
-        await outputContext.resume();
-
-        const endpoint =
-            "wss://generativelanguage.googleapis.com/ws/" +
-            "google.ai.generativelanguage.v1beta.GenerativeService." +
-            "BidiGenerateContentConstrained?access_token=" +
-            encodeURIComponent(TOKEN);
-
-        ws = new WebSocket(endpoint);
-
-        ws.onopen = function() {
-            setStatus("Connected. Configuring AI...");
-
-            ws.send(JSON.stringify({
-                setup: {
-                    model: "models/" + MODEL,
-
-                    generationConfig: {
-                        responseModalities: ["AUDIO"]
-                    },
-
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {}
-                }
-            }));
-        };
-
-        ws.onmessage = async function(event) {
-            try {
-                const message = JSON.parse(event.data);
-
-                if (message.setupComplete) {
-                    setupDone = true;
-
-                    setStatus("Connected. Starting microphone...");
-
-                    await startMicrophone();
-
-                    stopBtn.disabled = false;
-                    setStatus("Live Call Active. Speak now!");
-                }
-
-                if (message.error) {
-                    setStatus(
-                        "API Error: " +
-                        (message.error.message || "Unknown error")
-                    );
-                }
-
-                const content = message.serverContent;
-
-                if (content) {
-                    if (content.inputTranscription &&
-                        content.inputTranscription.text) {
-
-                        addMessage(
-                            "user",
-                            content.inputTranscription.text
-                        );
-                    }
-
-                    if (content.outputTranscription &&
-                        content.outputTranscription.text) {
-
-                        addMessage(
-                            "assistant",
-                            content.outputTranscription.text
-                        );
-                    }
-
-                    if (content.interrupted) {
-                        stopAudioPlayback();
-                    }
-
-                    if (content.modelTurn &&
-                        content.modelTurn.parts) {
-
-                        for (const part of content.modelTurn.parts) {
-                            if (part.inlineData &&
-                                part.inlineData.data) {
-
-                                await playAudio(
-                                    part.inlineData.data,
-                                    part.inlineData.mimeType
-                                );
-                            }
-                        }
-                    }
-
-                    if (content.turnComplete) {
-                        setStatus("AI replied. You can speak again.");
-                    }
-                }
-
-            } catch (error) {
-                console.error("Message Error:", error);
-                setStatus("Message processing error: " + error.message);
-            }
-        };
-
-        ws.onerror = function(error) {
-            console.error("WebSocket Error:", error);
-            setStatus("WebSocket connection error.");
-            startBtn.disabled = false;
-        };
-
-        ws.onclose = function(event) {
-            setupDone = false;
-            stopMicrophone();
-            setStatus(
-                "Connection closed. Code: " + event.code
-            );
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-        };
-
-    } catch (error) {
-        console.error(error);
-        setStatus("Error: " + error.message);
-        startBtn.disabled = false;
-    }
 }
 
 async function startMicrophone() {
@@ -362,40 +217,25 @@ async function startMicrophone() {
         }
     });
 
-    micContext = new AudioContext({
-        sampleRate: 16000
-    });
-
+    micContext = new AudioContext({ sampleRate: 16000 });
     await micContext.resume();
 
     micSource = micContext.createMediaStreamSource(micStream);
 
-    processor = micContext.createScriptProcessor(
-        2048,
-        1,
-        1
-    );
+    processor = micContext.createScriptProcessor(2048, 1, 1);
 
     processor.onaudioprocess = function(event) {
-        if (!setupDone || !ws || ws.readyState !== WebSocket.OPEN) {
-            return;
-        }
+        if (!setupDone || !ws || ws.readyState !== WebSocket.OPEN) return;
 
         const input = event.inputBuffer.getChannelData(0);
-
-        const resampled = resampleTo16k(
-            input,
-            micContext.sampleRate
-        );
-
+        const resampled = resampleTo16k(input, micContext.sampleRate);
         const pcm = floatToPCM16(resampled);
-        const base64Audio = pcmToBase64(pcm);
 
         ws.send(JSON.stringify({
             realtimeInput: {
                 audio: {
                     mimeType: "audio/pcm;rate=16000",
-                    data: base64Audio
+                    data: pcmToBase64(pcm)
                 }
             }
         }));
@@ -411,55 +251,43 @@ async function playAudio(base64Audio, mimeType) {
     const bytes = base64ToBytes(base64Audio);
     const sampleCount = Math.floor(bytes.length / 2);
 
-    const dataView = new DataView(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength
+    const view = new DataView(
+        bytes.buffer, bytes.byteOffset, bytes.byteLength
     );
 
     const samples = new Float32Array(sampleCount);
 
     for (let i = 0; i < sampleCount; i++) {
-        samples[i] = dataView.getInt16(i * 2, true) / 32768;
+        samples[i] = view.getInt16(i * 2, true) / 32768;
     }
 
-    const rateMatch = (mimeType || "").match(/rate=(\d+)/);
-    const sampleRate = rateMatch
-        ? Number(rateMatch[1])
-        : 24000;
+    const match = (mimeType || "").match(/rate=(\d+)/);
+    const sampleRate = match ? Number(match[1]) : 24000;
 
-    const audioBuffer = outputContext.createBuffer(
-        1,
-        samples.length,
-        sampleRate
+    const buffer = outputContext.createBuffer(
+        1, samples.length, sampleRate
     );
 
-    audioBuffer.copyToChannel(samples, 0);
+    buffer.copyToChannel(samples, 0);
 
     const source = outputContext.createBufferSource();
-    source.buffer = audioBuffer;
+    source.buffer = buffer;
     source.connect(outputContext.destination);
 
     const startTime = Math.max(
-        outputContext.currentTime,
-        nextPlayTime
+        outputContext.currentTime, nextPlayTime
     );
 
     source.start(startTime);
-    nextPlayTime = startTime + audioBuffer.duration;
+    nextPlayTime = startTime + buffer.duration;
 
     activeSources.add(source);
-
-    source.onended = function() {
-        activeSources.delete(source);
-    };
+    source.onended = () => activeSources.delete(source);
 }
 
 function stopAudioPlayback() {
     for (const source of activeSources) {
-        try {
-            source.stop();
-        } catch (error) {}
+        try { source.stop(); } catch (error) {}
     }
 
     activeSources.clear();
@@ -494,6 +322,111 @@ function stopMicrophone() {
     }
 }
 
+async function startCall() {
+    try {
+        if (!TOKEN || TOKEN === "__LIVE_TOKEN__") {
+            setStatus("Live token missing.");
+            return;
+        }
+
+        startBtn.disabled = true;
+        setStatus("Connecting to Gemini...");
+
+        outputContext = new AudioContext({ sampleRate: 24000 });
+        await outputContext.resume();
+
+        const endpoint =
+            "wss://generativelanguage.googleapis.com/ws/" +
+            "google.ai.generativelanguage.v1beta.GenerativeService." +
+            "BidiGenerateContent?access_token=" +
+            encodeURIComponent(TOKEN);
+
+        ws = new WebSocket(endpoint);
+
+        ws.onopen = function() {
+            setStatus("Connected. Configuring AI...");
+
+            ws.send(JSON.stringify({
+                setup: {
+                    model: "models/" + MODEL,
+                    generationConfig: {
+                        responseModalities: ["AUDIO"]
+                    },
+                    inputAudioTranscription: {},
+                    outputAudioTranscription: {}
+                }
+            }));
+        };
+
+        ws.onmessage = async function(event) {
+            try {
+                const message = JSON.parse(event.data);
+
+                if (message.error) {
+                    setStatus("API Error: " + message.error.message);
+                    return;
+                }
+
+                if (message.setupComplete) {
+                    setupDone = true;
+                    await startMicrophone();
+                    stopBtn.disabled = false;
+                    setStatus("Live Call Active. Speak now!");
+                }
+
+                const content = message.serverContent;
+                if (!content) return;
+
+                if (content.inputTranscription?.text) {
+                    addMessage("user", content.inputTranscription.text);
+                }
+
+                if (content.outputTranscription?.text) {
+                    addMessage("assistant", content.outputTranscription.text);
+                }
+
+                if (content.interrupted) stopAudioPlayback();
+
+                if (content.modelTurn?.parts) {
+                    for (const part of content.modelTurn.parts) {
+                        if (part.inlineData?.data) {
+                            await playAudio(
+                                part.inlineData.data,
+                                part.inlineData.mimeType
+                            );
+                        }
+                    }
+                }
+
+                if (content.turnComplete) {
+                    setStatus("AI replied. You can speak again.");
+                }
+
+            } catch (error) {
+                setStatus("Message error: " + error.message);
+            }
+        };
+
+        ws.onerror = function() {
+            setStatus("WebSocket connection error.");
+            startBtn.disabled = false;
+        };
+
+        ws.onclose = function(event) {
+            setupDone = false;
+            stopMicrophone();
+            setStatus("Connection closed. Code: " + event.code);
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
+
+    } catch (error) {
+        setStatus("Error: " + error.message);
+        stopMicrophone();
+        startBtn.disabled = false;
+    }
+}
+
 function stopCall() {
     setStatus("Stopping Live Call...");
 
@@ -502,11 +435,8 @@ function stopCall() {
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
-            realtimeInput: {
-                audioStreamEnd: true
-            }
+            realtimeInput: { audioStreamEnd: true }
         }));
-
         ws.close();
     } else if (ws) {
         ws.close();
@@ -523,6 +453,9 @@ function stopCall() {
 
     setStatus("Call stopped.");
 }
+
+startBtn.addEventListener("click", startCall);
+stopBtn.addEventListener("click", stopCall);
 </script>
 
 </body>

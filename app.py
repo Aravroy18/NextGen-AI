@@ -494,16 +494,11 @@ if page == "Dashboard":
 
     st.metric("AI Assistant", "Ready")
     st.metric("Web Search", "Always On")
-    st.metric("Account", st.session_state.get("username", "Guest"))
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),
         ("🌐 Current Affairs", "Explore recent news and events."),
-        ("🛠️ App Builder", "Plan and generate app code."),
-        ("💻 Coding School", "Learn programming from zero."),
-        ("🌍 Languages", "Practise English and other languages."),
-        ("📚 Study Assistant", "Understand school subjects."),
-        ("📄 PDF Assistant", "Ask questions about documents.")
+        ("🛠️ App Builder", "Plan and generate app code.")
     ]
 
     cols = st.columns(2)
@@ -514,6 +509,9 @@ if page == "Dashboard":
                 f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
                 unsafe_allow_html=True
             )
+
+elif page == "AI Chat":
+    st.title("💬 AI Chat")
 
 # ================= CHAT =================
 elif page == "AI Chat":

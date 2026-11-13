@@ -1,16 +1,15 @@
 
 import os
-import json
-import base64
+import io
 import sqlite3
+import base64
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import datetime
 
-# =========================================================
-# NEXTGEN AI — VERSION 4.0
-# =========================================================
+# =====================================================
+# NEXTGEN AI V5
+# =====================================================
 
 st.set_page_config(
     page_title="NEXTGEN AI",
@@ -19,44 +18,54 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# -------------------- CONFIG --------------------
+# ---------------- CONFIG ----------------
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
-CF_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
-CF_WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo"
+IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
-def secret(key, default=""):
+def get_secret(key):
     try:
-        return st.secrets.get(key, os.getenv(key, default))
+        return st.secrets.get(key, os.getenv(key, ""))
     except Exception:
-        return os.getenv(key, default)
+        return os.getenv(key, "")
 
-GROQ_KEY = secret("GROQ_API_KEY")
-GEMINI_KEY = secret("GEMINI_API_KEY")
-CF_ACCOUNT = secret("CLOUDFLARE_ACCOUNT_ID")
-CF_TOKEN = secret("CLOUDFLARE_API_TOKEN")
-CF_VOICE_URL = secret("CLOUDFLARE_VOICE_URL")
+GROQ_KEY = get_secret("GROQ_API_KEY")
+GEMINI_KEY = get_secret("GEMINI_API_KEY")
+CF_ACCOUNT = get_secret("CLOUDFLARE_ACCOUNT_ID")
+CF_TOKEN = get_secret("CLOUDFLARE_API_TOKEN")
+CF_LIVE_URL = get_secret("CLOUDFLARE_VOICE_URL")
 
-DB = "nextgen_v4.db"
+DB_PATH = "nextgen_v5.db"
 
-# -------------------- DATABASE --------------------
+SYSTEM_PROMPT = """
+You are NEXTGEN AI, a helpful and intelligent AI assistant.
+Give clear, accurate and useful answers.
+You can communicate in Hindi and English.
+Never invent facts or claim to have performed actions you did not perform.
+The creator of NEXTGEN AI is Arav.
+Do not invent private information about the creator.
+"""
 
-def db():
-    return sqlite3.connect(DB, check_same_thread=False)
+# ---------------- DATABASE ----------------
+
+def connect_db():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def init_db():
-    con = db()
+    con = connect_db()
     cur = con.cursor()
+
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS conversations (
+        CREATE TABLE IF NOT EXISTS v5_chats(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
             created TEXT
         )
     """)
+
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
+        CREATE TABLE IF NOT EXISTS v5_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             chat_id INTEGER,
             role TEXT,
@@ -64,14 +73,15 @@ def init_db():
             created TEXT
         )
     """)
+
     con.commit()
     con.close()
 
-def new_chat():
-    con = db()
+def create_chat():
+    con = connect_db()
     cur = con.cursor()
     cur.execute(
-        "INSERT INTO conversations(title, created) VALUES (?,?)",
+        "INSERT INTO v5_chats(title,created) VALUES(?,?)",
         ("New Chat", datetime.now().isoformat())
     )
     chat_id = cur.lastrowid
@@ -79,236 +89,54 @@ def new_chat():
     con.close()
     return chat_id
 
-def get_chats():
-    con = db()
+def all_chats():
+    con = connect_db()
     rows = con.execute(
-        "SELECT id,title,created FROM conversations ORDER BY id DESC"
+        "SELECT id,title,created FROM v5_chats ORDER BY id DESC"
     ).fetchall()
     con.close()
     return rows
 
-def save_message(chat_id, role, content):
-    con = db()
-    con.execute(
-        "INSERT INTO messages(chat_id,role,content,created) VALUES (?,?,?,?)",
-        (chat_id, role, content, datetime.now().isoformat())
-    )
-    con.commit()
-    con.close()
-
-def load_messages(chat_id):
-    con = db()
+def get_messages(chat_id):
+    con = connect_db()
     rows = con.execute(
-        "SELECT role,content FROM messages WHERE chat_id=? ORDER BY id",
+        "SELECT role,content FROM v5_messages WHERE chat_id=? ORDER BY id",
         (chat_id,)
     ).fetchall()
     con.close()
     return rows
 
-def rename_chat(chat_id, title):
-    con = db()
+def save_message(chat_id, role, content):
+    con = connect_db()
     con.execute(
-        "UPDATE conversations SET title=? WHERE id=?",
-        (title[:60], chat_id)
+        """INSERT INTO v5_messages(chat_id,role,content,created)
+           VALUES(?,?,?,?)""",
+        (chat_id, role, content, datetime.now().isoformat())
     )
     con.commit()
     con.close()
 
-def delete_chat(chat_id):
-    con = db()
-    con.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
-    con.execute("DELETE FROM conversations WHERE id=?", (chat_id,))
+def set_chat_title(chat_id, title):
+    con = connect_db()
+    con.execute(
+        "UPDATE v5_chats SET title=? WHERE id=?",
+        (title[:48], chat_id)
+    )
+    con.commit()
+    con.close()
+
+def remove_chat(chat_id):
+    con = connect_db()
+    con.execute("DELETE FROM v5_messages WHERE chat_id=?", (chat_id,))
+    con.execute("DELETE FROM v5_chats WHERE id=?", (chat_id,))
     con.commit()
     con.close()
 
 init_db()
 
-# -------------------- PREMIUM DESIGN --------------------
+# ---------------- AI ROUTING ----------------
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
-html, body, [class*="css"] {
-    font-family: Inter, sans-serif;
-}
-
-.stApp {
-    background:
-      radial-gradient(ellipse at 15% 0%, #24205b 0%, transparent 38%),
-      radial-gradient(ellipse at 90% 10%, #182c51 0%, transparent 34%),
-      #080b16;
-    color: #f4f5ff;
-}
-
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg,#10172b,#0b1020);
-    border-right: 1px solid #29314c;
-}
-
-[data-testid="stSidebar"] * {
-    color: #e8eaff;
-}
-
-.block-container {
-    padding-top: 1.5rem;
-    max-width: 1450px;
-}
-
-h1,h2,h3 {
-    color: #ffffff !important;
-    letter-spacing: -0.7px;
-}
-
-.hero {
-    padding: 35px;
-    border-radius: 25px;
-    background: linear-gradient(120deg,#171e3d,#30245e 55%,#182d4b);
-    border: 1px solid #55528b;
-    box-shadow: 0 15px 55px #0007;
-    margin-bottom: 25px;
-}
-
-.hero-tag {
-    color: #b8adff;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 3px;
-}
-
-.hero-title {
-    font-size: clamp(35px,5vw,58px);
-    font-weight: 900;
-    line-height: 1.1;
-    margin: 12px 0;
-}
-
-.hero-sub {
-    color: #c5c9e5;
-    font-size: 15px;
-}
-
-.panel {
-    background: linear-gradient(145deg,#151d32,#101629);
-    border: 1px solid #303b5b;
-    border-radius: 19px;
-    padding: 22px;
-    min-height: 130px;
-    box-shadow: 0 8px 30px #0003;
-}
-
-.panel-title {
-    font-size: 18px;
-    font-weight: 800;
-    margin-bottom: 9px;
-}
-
-.panel-desc {
-    color: #aab4d2;
-    font-size: 13px;
-    line-height: 1.6;
-}
-
-.metric {
-    background: #141d32;
-    border: 1px solid #303b5b;
-    border-radius: 16px;
-    padding: 17px;
-}
-
-.metric-label {
-    color: #9eaccb;
-    font-size: 12px;
-}
-
-.metric-value {
-    font-size: 25px;
-    font-weight: 900;
-    margin-top: 5px;
-}
-
-.brand {
-    font-size: 25px;
-    font-weight: 900;
-    letter-spacing: -1px;
-    padding: 10px 0 20px;
-}
-
-.brand span {
-    color: #a99aff;
-}
-
-.small-muted {
-    color: #9aa7c6;
-    font-size: 12px;
-}
-
-div.stButton > button {
-    border-radius: 12px;
-    border: 1px solid #414b70;
-    background: linear-gradient(120deg,#252e50,#34285f);
-    color: white;
-    font-weight: 700;
-    min-height: 42px;
-    transition: .2s;
-}
-
-div.stButton > button:hover {
-    border-color: #a99aff;
-    background: linear-gradient(120deg,#394575,#514080);
-}
-
-div[data-testid="stChatMessage"] {
-    background: #141b2d;
-    border: 1px solid #2d3854;
-    border-radius: 17px;
-    padding: 14px;
-    margin-bottom: 12px;
-}
-
-div[data-testid="stTextInput"] input {
-    background: #10172a;
-    color: white;
-    border: 1px solid #394361;
-    border-radius: 12px;
-    min-height: 43px;
-}
-
-div[data-testid="stFileUploader"] {
-    background: #10172a;
-    border: 1px dashed #5c6290;
-    border-radius: 12px;
-    padding: 7px;
-}
-
-div[data-testid="stAudioInput"] {
-    background: #10172a;
-    border: 1px solid #414b70;
-    border-radius: 12px;
-    padding: 5px;
-}
-
-hr {
-    border-color: #28324d;
-}
-
-footer {visibility: hidden;}
-#MainMenu {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------- AI ENGINE --------------------
-
-SYSTEM_PROMPT = """
-You are NEXTGEN AI, a helpful, accurate, multilingual AI assistant.
-Be clear, useful, respectful and honest.
-Never invent facts, links, or actions.
-The platform creator is Arav.
-If asked who created NEXTGEN AI, say it was created by Arav.
-Do not invent private information about the creator.
-"""
-
-def groq_answer(messages):
+def groq_request(messages):
     if not GROQ_KEY:
         raise RuntimeError("GROQ_API_KEY is missing.")
 
@@ -324,31 +152,34 @@ def groq_answer(messages):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 *messages
             ],
-            "temperature": 0.65,
-            "max_tokens": 4096
+            "temperature": 0.6,
+            "max_completion_tokens": 4096
         },
-        timeout=45
+        timeout=60
     )
     response.raise_for_status()
-    answer = response.json()["choices"][0]["message"]["content"]
+    result = response.json()
+    answer = result["choices"][0]["message"]["content"]
     if not answer:
-        raise RuntimeError("Groq returned an empty answer.")
+        raise RuntimeError("Groq returned an empty response.")
     return answer
 
-def gemini_answer(messages):
+def gemini_request(messages):
     if not GEMINI_KEY:
         raise RuntimeError("GEMINI_API_KEY is missing.")
 
     contents = []
-    for item in messages:
+    for msg in messages:
         contents.append({
-            "role": "model" if item["role"] == "assistant" else "user",
-            "parts": [{"text": item["content"]}]
+            "role": "model" if msg["role"] == "assistant" else "user",
+            "parts": [{"text": msg["content"]}]
         })
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+        + GEMINI_MODEL
+        + ":generateContent?key="
+        + GEMINI_KEY
     )
 
     response = requests.post(
@@ -359,158 +190,320 @@ def gemini_answer(messages):
             },
             "contents": contents,
             "generationConfig": {
-                "temperature": 0.65,
+                "temperature": 0.6,
                 "maxOutputTokens": 4096
             }
         },
-        timeout=35
+        timeout=40
     )
     response.raise_for_status()
     data = response.json()
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 def ask_ai(messages):
-    # Main: Groq. Backup: exactly one Gemini attempt.
+    # One Groq attempt, then at most one Gemini backup attempt.
     try:
-        return groq_answer(messages), "Groq"
-    except Exception as groq_error:
+        return groq_request(messages), "Groq"
+    except Exception as main_error:
         if not GEMINI_KEY:
             raise RuntimeError(
-                f"Groq failed and Gemini backup is not configured. "
-                f"Groq error: {groq_error}"
+                f"Groq failed; Gemini backup key is missing. {main_error}"
             )
         try:
-            return gemini_answer(messages), "Gemini Backup"
-        except Exception as gemini_error:
+            return gemini_request(messages), "Gemini Backup"
+        except Exception as backup_error:
             raise RuntimeError(
-                "Both AI services failed. "
-                f"Groq: {groq_error} | Gemini: {gemini_error}"
+                f"Groq failed: {main_error}\n"
+                f"Gemini backup failed: {backup_error}"
             )
 
-# -------------------- CLOUDFLARE HELPERS --------------------
+# ---------------- CLOUDFLARE IMAGE ----------------
 
-def cloudflare_endpoint(model):
+def cloudflare_image(prompt):
     if not CF_ACCOUNT or not CF_TOKEN:
-        raise RuntimeError("Cloudflare Account ID or API Token missing.")
-    return (
+        raise RuntimeError("Cloudflare credentials are missing.")
+
+    url = (
         "https://api.cloudflare.com/client/v4/accounts/"
-        f"{CF_ACCOUNT}/ai/run/{model}"
+        + CF_ACCOUNT
+        + "/ai/run/"
+        + IMAGE_MODEL
     )
 
-def generate_image(prompt):
     response = requests.post(
-        cloudflare_endpoint(CF_IMAGE_MODEL),
+        url,
         headers={
             "Authorization": f"Bearer {CF_TOKEN}",
             "Content-Type": "application/json"
         },
         json={"prompt": prompt, "steps": 4},
-        timeout=120
+        timeout=150
     )
     response.raise_for_status()
     data = response.json()
 
     image_data = data.get("result", {}).get("image")
     if not image_data:
-        raise RuntimeError(f"Cloudflare image response: {data}")
+        raise RuntimeError(str(data))
 
     return base64.b64decode(image_data)
 
+# ---------------- AUDIO TRANSCRIPTION ----------------
+
 def transcribe_audio(audio_file):
-    audio_b64 = base64.b64encode(audio_file.getvalue()).decode("utf-8")
+    if not GROQ_KEY:
+        raise RuntimeError("Groq key is missing for transcription.")
+
     response = requests.post(
-        cloudflare_endpoint(CF_WHISPER_MODEL),
-        headers={
-            "Authorization": f"Bearer {CF_TOKEN}",
-            "Content-Type": "application/json"
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        headers={"Authorization": f"Bearer {GROQ_KEY}"},
+        files={
+            "file": (
+                "recording.wav",
+                audio_file.getvalue(),
+                "audio/wav"
+            )
         },
-        json={"audio": audio_b64, "task": "transcribe"},
+        data={"model": "whisper-large-v3-turbo"},
         timeout=90
     )
     response.raise_for_status()
-    result = response.json().get("result", {})
-    return result.get("text", "")
+    return response.json().get("text", "")
 
-# -------------------- SESSION --------------------
-
-if "chat_id" not in st.session_state:
-    st.session_state.chat_id = new_chat()
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ---------------- SESSION ----------------
 
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
 
-if "pending_prompt" not in st.session_state:
-    st.session_state.pending_prompt = ""
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = create_chat()
 
-if "attachment_text" not in st.session_state:
-    st.session_state.attachment_text = ""
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# -------------------- SIDEBAR --------------------
+if "last_provider" not in st.session_state:
+    st.session_state.last_provider = "Automatic"
 
-with st.sidebar:
-    st.markdown(
-        '<div class="brand">✦ NEXTGEN<span> AI</span></div>',
-        unsafe_allow_html=True
-    )
-    st.caption("YOUR CREATIVE INTELLIGENCE PLATFORM")
-    st.markdown("---")
+# ---------------- DESIGN ----------------
 
-    if st.button("＋  New Chat", use_container_width=True):
-        st.session_state.chat_id = new_chat()
-        st.session_state.messages = []
-        st.session_state.page = "AI Chat"
-        st.rerun()
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-    st.markdown("### WORKSPACE")
+html,body,[class*="css"] {
+    font-family: Inter, sans-serif;
+}
 
-    pages = {
-        "⌂  Dashboard": "Dashboard",
-        "✦  AI Chat": "AI Chat",
-        "▧  AI Image Studio": "AI Image Studio",
-        "⌕  Tool Center": "Tool Center",
-        "▤  PDF Assistant": "PDF Assistant",
-        "◷  Chat History": "Chat History",
-        "▣  My Creations": "My Creations",
-        "⚙  Settings": "Settings",
-        "ⓘ  About": "About"
-    }
+.stApp {
+    background:
+      radial-gradient(ellipse at 12% 0%,#28235a 0%,transparent 35%),
+      radial-gradient(ellipse at 95% 5%,#172e50 0%,transparent 35%),
+      #080c18;
+    color: #f6f6ff;
+}
 
-    for label, page in pages.items():
-        if st.button(label, key=f"nav_{page}", use_container_width=True):
-            st.session_state.page = page
-            st.rerun()
+.block-container {
+    max-width: 1450px;
+    padding-top: 1.6rem;
+    padding-bottom: 5rem;
+}
 
-    st.markdown("---")
-    st.markdown("### RECENT CHATS")
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg,#111a30,#0a1020);
+    border-right: 1px solid #2c3858;
+}
 
-    chats = get_chats()
-    for chat in chats[:8]:
-        title = chat[1] or "New Chat"
-        if st.button("▸ " + title[:24], key=f"history_{chat[0]}",
-                     use_container_width=True):
-            st.session_state.chat_id = chat[0]
-            st.session_state.messages = load_messages(chat[0])
-            st.session_state.page = "AI Chat"
-            st.rerun()
+[data-testid="stSidebar"] > div {
+    padding-top: 1.2rem;
+}
 
-    st.markdown("---")
-    st.markdown(
-        '<div class="small-muted">NEXTGEN AI • VERSION 4.0<br>'
-        'Built for creativity, learning and productivity.</div>',
-        unsafe_allow_html=True
-    )
+[data-testid="stSidebar"] button {
+    text-align: left;
+    border-radius: 11px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #dce3ff;
+    min-height: 40px;
+}
 
-# -------------------- PAGE HEADER --------------------
+[data-testid="stSidebar"] button:hover {
+    background: #242d4a;
+    border-color: #414d76;
+}
 
-page = st.session_state.page
+.brand {
+    font-size: 27px;
+    font-weight: 900;
+    letter-spacing: -1.3px;
+    padding: 5px 0;
+}
 
-def hero(title, subtitle, tag="NEXTGEN AI PLATFORM"):
+.brand span {
+    color: #a89aff;
+}
+
+.sidebar-tag {
+    color: #8998bd;
+    font-size: 10px;
+    letter-spacing: 2px;
+    margin-bottom: 18px;
+}
+
+.hero {
+    border: 1px solid #55548b;
+    background: linear-gradient(115deg,#171e3e,#30265d 55%,#183451);
+    border-radius: 25px;
+    padding: 34px;
+    margin-bottom: 25px;
+    box-shadow: 0 15px 50px #0005;
+}
+
+.hero-label {
+    color: #c0b6ff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 3px;
+}
+
+.hero-title {
+    font-size: clamp(34px,5vw,55px);
+    font-weight: 900;
+    line-height: 1.1;
+    margin: 13px 0;
+    color: white;
+}
+
+.hero-sub {
+    color: #c4cbe5;
+    font-size: 14px;
+}
+
+.panel {
+    border: 1px solid #303c5d;
+    border-radius: 18px;
+    padding: 21px;
+    background: linear-gradient(145deg,#172139,#10172a);
+    min-height: 125px;
+    margin-bottom: 12px;
+}
+
+.panel-icon {
+    font-size: 25px;
+    margin-bottom: 8px;
+}
+
+.panel-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: white;
+}
+
+.panel-desc {
+    font-size: 12px;
+    color: #aab7d4;
+    margin-top: 7px;
+    line-height: 1.5;
+}
+
+.metric {
+    border: 1px solid #303c5d;
+    background: #141d32;
+    padding: 17px;
+    border-radius: 15px;
+}
+
+.metric-label {
+    font-size: 11px;
+    color: #aab6d4;
+}
+
+.metric-value {
+    font-size: 23px;
+    font-weight: 900;
+    margin: 5px 0;
+}
+
+.small-muted {
+    color: #9ca9c8;
+    font-size: 11px;
+}
+
+div.stButton > button,
+div.stLinkButton > a {
+    border-radius: 11px;
+    border: 1px solid #414d72;
+    background: linear-gradient(120deg,#252f50,#34285e);
+    color: white;
+    font-weight: 700;
+    min-height: 39px;
+}
+
+div.stButton > button:hover,
+div.stLinkButton > a:hover {
+    border-color: #aaa0ff;
+    color: white;
+}
+
+div[data-testid="stChatMessage"] {
+    background: #141d30;
+    border: 1px solid #2b3855;
+    border-radius: 17px;
+    padding: 13px;
+    margin-bottom: 12px;
+}
+
+/* Compact native chat composer */
+.st-key-nextgen_chat_input {
+    width: 100%;
+}
+
+[data-testid="stChatInput"] {
+    border: 1px solid #515b7d !important;
+    border-radius: 24px !important;
+    background: #111a2c !important;
+    box-shadow: 0 5px 25px #0004;
+}
+
+[data-testid="stChatInput"] textarea {
+    color: white !important;
+    font-size: 14px !important;
+}
+
+[data-testid="stChatInput"] button {
+    border-radius: 50% !important;
+}
+
+div[data-testid="stFileUploader"] {
+    border: 1px dashed #535f86;
+    border-radius: 13px;
+    background: #121b30;
+    padding: 8px;
+}
+
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea {
+    background: #111a2d;
+    color: white;
+    border: 1px solid #394766;
+    border-radius: 12px;
+}
+
+hr {
+    border-color: #293550;
+}
+
+footer,#MainMenu {
+    visibility: hidden;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------- UI HELPERS ----------------
+
+def hero(title, subtitle, label="NEXTGEN AI"):
     st.markdown(f"""
     <div class="hero">
-      <div class="hero-tag">{tag}</div>
+      <div class="hero-label">{label}</div>
       <div class="hero-title">{title}</div>
       <div class="hero-sub">{subtitle}</div>
     </div>
@@ -525,359 +518,432 @@ def metric(label, value, note):
     </div>
     """, unsafe_allow_html=True)
 
-# =========================================================
+def panel(icon, title, description):
+    st.markdown(f"""
+    <div class="panel">
+      <div class="panel-icon">{icon}</div>
+      <div class="panel-title">{title}</div>
+      <div class="panel-desc">{description}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ---------------- SIDEBAR ----------------
+
+with st.sidebar:
+    st.markdown(
+        '<div class="brand">✦ NEXTGEN<span> AI</span></div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<div class="sidebar-tag">YOUR AI WORKSPACE</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button("＋   New Chat", use_container_width=True):
+        st.session_state.chat_id = create_chat()
+        st.session_state.messages = []
+        st.session_state.page = "AI Chat"
+        st.rerun()
+
+    st.markdown("---")
+    st.caption("WORKSPACE")
+
+    navigation = [
+        ("⌂", "Dashboard"),
+        ("✦", "AI Chat"),
+        ("▧", "AI Image Studio"),
+        ("⌕", "Tool Center"),
+        ("▤", "PDF Assistant")
+    ]
+
+    for icon, name in navigation:
+        if st.button(
+            f"{icon}   {name}",
+            key=f"nav_{name}",
+            use_container_width=True
+        ):
+            st.session_state.page = name
+            st.rerun()
+
+    st.markdown("---")
+    st.caption("YOUR LIBRARY")
+
+    for icon, name in [
+        ("◷", "Chat History"),
+        ("▣", "My Creations"),
+        ("⚙", "Settings"),
+        ("ⓘ", "About")
+    ]:
+        if st.button(
+            f"{icon}   {name}",
+            key=f"nav_{name}",
+            use_container_width=True
+        ):
+            st.session_state.page = name
+            st.rerun()
+
+    st.markdown("---")
+    st.caption("RECENT CONVERSATIONS")
+
+    for chat in all_chats()[:7]:
+        if st.button(
+            "•  " + (chat[1] or "New Chat")[:25],
+            key=f"recent_{chat[0]}",
+            use_container_width=True
+        ):
+            st.session_state.chat_id = chat[0]
+            st.session_state.messages = get_messages(chat[0])
+            st.session_state.page = "AI Chat"
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown(
+        '<div class="small-muted">NEXTGEN AI V5.0<br>'
+        'Created by Arav</div>',
+        unsafe_allow_html=True
+    )
+
+page = st.session_state.page
+
+# =====================================================
 # DASHBOARD
-# =========================================================
+# =====================================================
 
 if page == "Dashboard":
     hero(
-        "Think Beyond Limits.",
-        "One intelligent workspace for ideas, answers, creativity and productivity."
+        "Your Ideas. Your Intelligence.",
+        "A smarter space for learning, creating, writing and exploring."
     )
 
-    a, b, c, d = st.columns(4)
+    a,b,c,d = st.columns(4)
     with a:
-        metric("AI ENGINE", "GROQ", "Primary assistant")
+        metric("MAIN AI", "GROQ", "Primary assistant")
     with b:
-        metric("BACKUP ENGINE", "GEMINI", "Automatic one-time fallback")
+        metric("BACKUP AI", "GEMINI", "One automatic fallback")
     with c:
-        metric("IMAGE ENGINE", "CLOUDFLARE", "FLUX image generation")
+        metric("IMAGE AI", "CLOUDFLARE", "FLUX image generation")
     with d:
-        metric("WORKSPACE", "ALL-IN-ONE", "Your AI creative space")
+        metric("WORKSPACE", "ALL-IN-ONE", "Your creative universe")
 
-    st.markdown("## Explore your workspace")
+    st.markdown("## Explore NEXTGEN AI")
 
-    cards = [
-        ("✦", "AI Chat", "Ask questions, brainstorm, learn and create."),
-        ("▧", "AI Image Studio", "Generate images from your imagination."),
-        ("⌕", "Tool Center", "Writing, study, coding and productivity tools."),
-        ("▤", "PDF Assistant", "Upload a PDF and ask questions about it.")
-    ]
+    left,right = st.columns(2)
 
-    cols = st.columns(2)
-    for i, (icon, title, desc) in enumerate(cards):
-        with cols[i % 2]:
-            st.markdown(f"""
-            <div class="panel">
-              <div style="font-size:27px">{icon}</div>
-              <div class="panel-title">{title}</div>
-              <div class="panel-desc">{desc}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("Open " + title, key=f"open_{title}",
-                         use_container_width=True):
-                st.session_state.page = title
-                st.rerun()
+    with left:
+        panel("✦", "AI Chat", "A clean, compact AI conversation experience.")
+        if st.button("Open AI Chat", key="dash_chat", use_container_width=True):
+            st.session_state.page = "AI Chat"
+            st.rerun()
 
-    st.markdown("## Built for your ideas")
+        panel("▧", "AI Image Studio", "Create images from your imagination.")
+        if st.button("Open Image Studio", key="dash_image", use_container_width=True):
+            st.session_state.page = "AI Image Studio"
+            st.rerun()
+
+    with right:
+        panel("⌕", "AI Tool Center", "Writing, study, creator and productivity tools.")
+        if st.button("Open Tool Center", key="dash_tools", use_container_width=True):
+            st.session_state.page = "Tool Center"
+            st.rerun()
+
+        panel("▤", "PDF Assistant", "Ask questions about your documents.")
+        if st.button("Open PDF Assistant", key="dash_pdf", use_container_width=True):
+            st.session_state.page = "PDF Assistant"
+            st.rerun()
+
+    st.markdown("## Your AI workspace")
     st.markdown("""
-    - **Smart AI Chat:** Groq first, Gemini only if the main request fails.
-    - **Creative Studio:** Cloudflare image generation.
-    - **Voice Input:** Record your prompt from the chat composer.
-    - **File Attachments:** Add documents to your conversation.
-    - **Chat History:** Return to your previous conversations.
+    - Groq-powered main chat with automatic Gemini backup.
+    - Compact chat composer with built-in attachment and microphone controls.
+    - Cloudflare-powered image generation.
+    - Conversation history and document assistance.
     """)
 
-# =========================================================
+# =====================================================
 # AI CHAT
-# =========================================================
+# =====================================================
 
 elif page == "AI Chat":
     st.markdown("## ✦ AI Chat")
-    st.caption("Your intelligent assistant • Groq primary • Gemini backup")
+    st.caption("Ask anything. Your assistant is ready.")
 
-    # Display conversation
     for role, content in st.session_state.messages:
         with st.chat_message(role):
             st.markdown(content)
 
-    # -------------------- COMPOSER --------------------
-    # All composer controls are placed inside one bordered container.
+    # The native Streamlit composer contains its own Plus and Mic controls.
+    # Live Voice is kept in the same compact composer area.
     with st.container(border=True):
-        st.markdown(
-            '<div style="font-weight:800;margin-bottom:8px">'
-            '✦ Message NEXTGEN AI</div>',
-            unsafe_allow_html=True
-        )
+        live_col, input_col = st.columns([1.0, 8.5], vertical_alignment="center")
 
-        col_plus, col_input, col_mic, col_live, col_send = st.columns(
-            [0.8, 5.0, 1.1, 1.25, 0.9],
-            vertical_alignment="center"
-        )
-
-        with col_plus:
-            st.markdown("**＋**")
-            attachment = st.file_uploader(
-                " ",
-                type=["txt", "pdf", "png", "jpg", "jpeg"],
-                key="chat_attachment",
-                label_visibility="collapsed"
-            )
-
-        with col_input:
-            prompt = st.text_input(
-                "Message",
-                placeholder="Ask anything...",
-                label_visibility="collapsed",
-                key="chat_prompt"
-            )
-
-        with col_mic:
-            audio = st.audio_input(
-                "Mic",
-                key="chat_mic",
-                label_visibility="collapsed"
-            )
-
-        with col_live:
-            if CF_VOICE_URL:
-                st.link_button("◉ Live", CF_VOICE_URL,
-                               use_container_width=True)
+        with live_col:
+            if CF_LIVE_URL:
+                st.link_button(
+                    "◉ Live",
+                    CF_LIVE_URL,
+                    use_container_width=True
+                )
             else:
                 st.button(
                     "◉ Live",
                     disabled=True,
-                    help="Configure CLOUDFLARE_VOICE_URL to enable Cloudflare Live Voice.",
+                    help="Add CLOUDFLARE_VOICE_URL in Streamlit Secrets.",
                     use_container_width=True
                 )
 
-        with col_send:
-            send = st.button("➤", key="send_chat", use_container_width=True)
+        with input_col:
+            submitted = st.chat_input(
+                "Message NEXTGEN AI...",
+                key="nextgen_chat_input",
+                accept_file=True,
+                accept_audio=True,
+                file_type=["pdf", "txt", "png", "jpg", "jpeg"],
+                max_upload_size=20
+            )
 
-        # Attachment extraction
-        attachment_content = ""
-        if attachment is not None:
-            if attachment.name.lower().endswith(".txt"):
-                attachment_content = attachment.getvalue().decode(
+    if submitted is not None:
+        user_text = submitted.text or ""
+        file_context = ""
+
+        # Process uploaded files
+        for uploaded in submitted.files:
+            filename = uploaded.name.lower()
+
+            if filename.endswith(".txt"):
+                file_context += "\n\n[Attached text]\n"
+                file_context += uploaded.getvalue().decode(
                     "utf-8", errors="ignore"
-                )
-            elif attachment.name.lower().endswith(".pdf"):
+                )[:20000]
+
+            elif filename.endswith(".pdf"):
                 try:
                     from pypdf import PdfReader
-                    import io
-                    reader = PdfReader(io.BytesIO(attachment.getvalue()))
-                    attachment_content = "\n".join(
-                        page.extract_text() or "" for page in reader.pages
+                    reader = PdfReader(io.BytesIO(uploaded.getvalue()))
+                    extracted = "\n".join(
+                        p.extract_text() or "" for p in reader.pages
                     )
+                    file_context += "\n\n[Attached PDF]\n"
+                    file_context += extracted[:25000]
                 except Exception as e:
-                    st.error(f"Could not read PDF: {e}")
-            else:
-                st.info("Image attached. Image understanding is not enabled in this build.")
+                    st.warning(f"Could not read {uploaded.name}: {e}")
 
-        # Microphone transcription through Cloudflare Whisper
-        if audio is not None:
-            if st.button("Transcribe microphone recording", key="transcribe_mic"):
-                try:
-                    transcript = transcribe_audio(audio)
-                    st.session_state.chat_prompt = transcript
-                    st.success("Voice converted to text. Press ➤ to send.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Cloudflare transcription error: {e}")
-
-        if send:
-            user_prompt = (prompt or "").strip()
-
-            if attachment_content:
-                user_prompt += (
-                    "\n\n[Attached document content]\n" +
-                    attachment_content[:25000]
+            elif filename.endswith((".png", ".jpg", ".jpeg")):
+                st.info(
+                    f"{uploaded.name} attached. Image understanding "
+                    "is not enabled in this text-chat build."
                 )
 
-            if user_prompt:
-                st.session_state.messages.append(("user", user_prompt))
-                save_message(st.session_state.chat_id, "user", user_prompt)
+        if submitted.audio is not None:
+            with st.spinner("Converting your voice to text..."):
+                try:
+                    voice_text = transcribe_audio(submitted.audio)
+                    user_text = (user_text + "\n" + voice_text).strip()
+                except Exception as e:
+                    st.error(f"Voice transcription failed: {e}")
 
-                # Rename chat from first message
-                if len(st.session_state.messages) == 1:
-                    rename_chat(st.session_state.chat_id, user_prompt[:45])
+        user_text = (user_text + file_context).strip()
 
-                api_messages = [
-                    {"role": role, "content": content}
-                    for role, content in st.session_state.messages[-20:]
-                ]
+        if user_text:
+            st.session_state.messages.append(("user", user_text))
+            save_message(st.session_state.chat_id, "user", user_text)
 
-                with st.spinner("NEXTGEN AI is thinking..."):
-                    try:
-                        answer, provider = ask_ai(api_messages)
-                        st.session_state.messages.append(("assistant", answer))
-                        save_message(
-                            st.session_state.chat_id, "assistant", answer
-                        )
-                        st.session_state.last_provider = provider
-                    except Exception as e:
-                        st.error(str(e))
+            if len(st.session_state.messages) == 1:
+                set_chat_title(st.session_state.chat_id, user_text[:48])
 
-                st.rerun()
+            api_messages = [
+                {"role": role, "content": content}
+                for role, content in st.session_state.messages[-20:]
+            ]
 
-    if st.session_state.messages:
-        st.caption(
-            "Last response provider: " +
-            st.session_state.get("last_provider", "Automatic")
-        )
+            with st.spinner("NEXTGEN AI is thinking..."):
+                try:
+                    answer, provider = ask_ai(api_messages)
+                    st.session_state.messages.append(("assistant", answer))
+                    save_message(
+                        st.session_state.chat_id, "assistant", answer
+                    )
+                    st.session_state.last_provider = provider
+                except Exception as e:
+                    st.error(str(e))
+
+            st.rerun()
 
     st.caption(
-        "Plus = attachment • Mic = voice-to-text • Live = Cloudflare Voice Agent"
+        f"Response engine: {st.session_state.last_provider} "
+        "• Plus and Mic are built into the chat input."
     )
 
-# =========================================================
-# AI IMAGE STUDIO
-# =========================================================
+# =====================================================
+# IMAGE STUDIO
+# =====================================================
 
 elif page == "AI Image Studio":
     hero(
         "AI Image Studio",
-        "Turn your imagination into images using Cloudflare Workers AI."
+        "Bring your imagination to life with Cloudflare FLUX."
     )
 
+    st.markdown("### Describe your image")
+
     prompt = st.text_area(
-        "Describe the image you want",
-        placeholder="A cinematic futuristic city at night, dramatic lighting...",
-        height=130
+        "Image prompt",
+        placeholder="Describe the image you want to create...",
+        height=90,
+        label_visibility="collapsed"
     )
+
+    # Compact Plus attachment control in Image Studio
+    with st.expander("＋  Add reference image", expanded=False):
+        reference = st.file_uploader(
+            "Choose an image",
+            type=["png", "jpg", "jpeg"],
+            key="image_reference"
+        )
+
+        if reference:
+            st.image(reference, caption="Selected reference image", width=220)
+            st.caption(
+                "Reference image preview is available. "
+                "Reference-based editing is not enabled in this version."
+            )
 
     if st.button("✦ Generate Image", use_container_width=True):
         if not prompt.strip():
-            st.warning("Write an image prompt first.")
+            st.warning("Please write an image prompt.")
         else:
-            with st.spinner("Creating your image with Cloudflare..."):
+            with st.spinner("Creating your image..."):
                 try:
-                    image_bytes = generate_image(prompt)
-                    st.image(image_bytes, caption="Generated with Cloudflare FLUX")
+                    result = cloudflare_image(prompt)
+                    st.image(result, use_container_width=True)
                     st.download_button(
-                        "Download Image",
-                        data=image_bytes,
-                        file_name="nextgen_ai_image.jpg",
+                        "↓ Download Image",
+                        data=result,
+                        file_name="nextgen_image.jpg",
                         mime="image/jpeg"
                     )
                 except Exception as e:
                     st.error(f"Image generation failed: {e}")
 
-# =========================================================
+# =====================================================
 # TOOL CENTER
-# =========================================================
+# =====================================================
 
 elif page == "Tool Center":
     hero(
         "AI Tool Center",
-        "A collection of practical AI-powered tools for everyday work."
+        "Choose a tool and let NEXTGEN AI help you."
     )
 
     tools = {
         "Writing": [
-            "Email Writer", "Formal Letter Writer", "Essay Writer",
+            "Email Writer", "Letter Writer", "Essay Writer",
             "Application Writer", "Notice Writer", "Speech Writer",
-            "Story Writer", "Paragraph Writer", "Article Writer",
-            "Resume Helper", "Cover Letter Writer", "Report Writer",
-            "Blog Writer", "Social Media Caption", "Product Description",
-            "YouTube Description", "Video Script", "Ad Copy",
-            "Invitation Writer", "Thank You Note"
+            "Story Writer", "Article Writer", "Report Writer",
+            "Resume Helper", "Cover Letter Writer", "Blog Writer",
+            "Social Caption", "YouTube Description", "Ad Copy",
+            "Product Description", "Invitation Writer"
         ],
         "Study": [
-            "Explain a Topic", "Short Notes", "Detailed Notes",
-            "Quiz Maker", "MCQ Maker", "Flashcard Maker",
-            "Question Answer Maker", "Chapter Summary",
-            "Practice Worksheet", "Study Planner", "Vocabulary Builder",
-            "Grammar Helper", "Maths Explanation", "Science Explainer",
-            "History Explainer", "Geography Explainer"
+            "Topic Explainer", "Short Notes", "Detailed Notes",
+            "MCQ Maker", "Quiz Maker", "Flashcard Maker",
+            "Chapter Summary", "Worksheet Maker", "Study Planner",
+            "Maths Explainer", "Science Explainer", "Grammar Helper",
+            "Vocabulary Builder", "Question Answer Maker"
         ],
         "Developer": [
             "Python Helper", "HTML Generator", "CSS Helper",
-            "JavaScript Helper", "Debugging Assistant", "Code Explainer",
-            "SQL Helper", "Regex Helper", "API Explainer",
-            "Website Planner", "App Idea Generator", "JSON Formatter"
-        ],
-        "Business": [
-            "Business Idea Generator", "Business Plan Writer",
-            "Brand Name Generator", "Slogan Generator",
-            "Marketing Planner", "Customer Reply Writer",
-            "Product Research Planner", "Presentation Outline",
-            "Meeting Summary", "Project Planner"
+            "JavaScript Helper", "Code Explainer", "Debugging Helper",
+            "SQL Helper", "API Explainer", "Website Planner",
+            "App Idea Generator", "JSON Helper"
         ],
         "Creator": [
-            "YouTube Ideas", "Reel Ideas", "Thumbnail Ideas",
-            "Video Hook Generator", "Scene Prompt Writer",
-            "Image Prompt Writer", "Voiceover Script",
-            "Character Creator", "Story Plot Generator",
-            "Content Calendar", "Hashtag Ideas", "Channel Bio Writer"
+            "YouTube Ideas", "Reel Ideas", "Video Script",
+            "Thumbnail Ideas", "Image Prompt", "Video Prompt",
+            "Voiceover Script", "Character Creator", "Story Plot",
+            "Content Calendar", "Hashtag Ideas", "Channel Bio"
+        ],
+        "Business": [
+            "Business Ideas", "Business Plan", "Brand Name",
+            "Slogan Generator", "Marketing Planner", "Customer Reply",
+            "Project Planner", "Meeting Summary", "Presentation Outline"
         ],
         "Language": [
             "Hindi to English", "English to Hindi", "Text Rewriter",
             "Proofreader", "Grammar Correction", "Simple Explanation",
-            "Professional Tone", "Friendly Tone", "Text Summarizer",
-            "Translation Helper"
+            "Professional Tone", "Text Summarizer"
         ],
         "Everyday": [
             "Daily Planner", "Checklist Maker", "Decision Helper",
-            "Gift Ideas", "Travel Planner", "Recipe Ideas",
-            "Routine Planner", "Goal Planner", "Problem Solver",
-            "Brainstorming Assistant"
+            "Gift Ideas", "Travel Planner", "Routine Planner",
+            "Goal Planner", "Brainstorming Assistant"
         ]
     }
 
-    category = st.selectbox("Choose a category", list(tools.keys()))
-    selected_tool = st.selectbox("Choose your tool", tools[category])
-
-    tool_prompt = st.text_area(
-        "Enter your details",
-        placeholder=f"Tell AI what you need for {selected_tool}...",
-        height=130
+    category = st.selectbox("Category", list(tools.keys()))
+    tool = st.selectbox("Choose a tool", tools[category])
+    details = st.text_area(
+        "Your instructions",
+        placeholder="Tell NEXTGEN AI what you need...",
+        height=100
     )
 
     if st.button("Run Tool ✦", use_container_width=True):
-        if tool_prompt.strip():
-            request_text = (
-                f"Use the following tool: {selected_tool}.\n"
-                f"User's requirements:\n{tool_prompt}"
-            )
-            with st.spinner("Working..."):
+        if details.strip():
+            with st.spinner("Creating your result..."):
                 try:
-                    result, provider = ask_ai([
-                        {"role": "user", "content": request_text}
-                    ])
-                    st.markdown("### Result")
+                    result, provider = ask_ai([{
+                        "role": "user",
+                        "content": f"Use this tool: {tool}\n\n{details}"
+                    }])
+                    st.markdown("### Your Result")
                     st.markdown(result)
-                    st.caption(f"Generated using {provider}")
+                    st.caption(f"Generated by {provider}")
                 except Exception as e:
                     st.error(str(e))
         else:
-            st.warning("Enter your requirements first.")
+            st.warning("Enter your instructions first.")
 
-    total_tools = sum(len(v) for v in tools.values())
-    st.caption(f"{total_tools}+ tool presets available.")
+    st.caption(
+        f"{sum(len(items) for items in tools.values())} AI tool presets."
+    )
 
-# =========================================================
+# =====================================================
 # PDF ASSISTANT
-# =========================================================
+# =====================================================
 
 elif page == "PDF Assistant":
     hero(
         "PDF Assistant",
-        "Upload a PDF and ask questions about its readable text."
+        "Upload a document and ask questions about its contents."
     )
 
-    pdf = st.file_uploader("Upload PDF", type=["pdf"], key="pdf_page")
+    pdf = st.file_uploader(
+        "＋  Upload PDF",
+        type=["pdf"],
+        key="pdf_assistant_upload"
+    )
 
     if pdf:
         try:
             from pypdf import PdfReader
-            import io
             reader = PdfReader(io.BytesIO(pdf.getvalue()))
             pdf_text = "\n".join(
                 page.extract_text() or "" for page in reader.pages
             )
-            st.success(f"PDF loaded • {len(reader.pages)} pages")
-            question = st.text_input("Ask something about this PDF")
 
-            if st.button("Ask about PDF"):
+            st.success(f"Loaded {len(reader.pages)} pages.")
+            question = st.text_input("Ask a question about this PDF")
+
+            if st.button("Ask NEXTGEN AI"):
                 if question.strip():
-                    with st.spinner("Reading your PDF..."):
+                    with st.spinner("Reading your document..."):
                         answer, provider = ask_ai([{
                             "role": "user",
                             "content": (
-                                "Answer using this PDF text:\n" +
-                                pdf_text[:45000] +
-                                "\n\nQuestion: " + question
+                                "Answer based on this PDF:\n"
+                                + pdf_text[:45000]
+                                + "\n\nQuestion: "
+                                + question
                             )
                         }])
                     st.markdown(answer)
@@ -885,77 +951,73 @@ elif page == "PDF Assistant":
         except Exception as e:
             st.error(f"PDF error: {e}")
 
-# =========================================================
+# =====================================================
 # CHAT HISTORY
-# =========================================================
+# =====================================================
 
 elif page == "Chat History":
-    hero("Chat History", "Your previous conversations in one place.")
+    hero("Chat History", "Continue your previous conversations.")
 
-    for chat in get_chats():
+    for chat in all_chats():
         chat_id, title, created = chat
-        with st.expander(f"{title}  •  {created[:16]}"):
-            col1, col2 = st.columns(2)
 
-            with col1:
-                if st.button("Open Chat", key=f"open_chat_{chat_id}"):
+        with st.expander(f"{title}  ·  {created[:16]}"):
+            open_col, delete_col = st.columns(2)
+
+            with open_col:
+                if st.button("Open", key=f"history_open_{chat_id}"):
                     st.session_state.chat_id = chat_id
-                    st.session_state.messages = load_messages(chat_id)
+                    st.session_state.messages = get_messages(chat_id)
                     st.session_state.page = "AI Chat"
                     st.rerun()
 
-            with col2:
-                if st.button("Delete", key=f"delete_chat_{chat_id}"):
-                    delete_chat(chat_id)
+            with delete_col:
+                if st.button("Delete", key=f"history_delete_{chat_id}"):
+                    remove_chat(chat_id)
                     if st.session_state.chat_id == chat_id:
-                        st.session_state.chat_id = new_chat()
+                        st.session_state.chat_id = create_chat()
                         st.session_state.messages = []
                     st.rerun()
 
-# =========================================================
+# =====================================================
 # MY CREATIONS
-# =========================================================
+# =====================================================
 
 elif page == "My Creations":
-    hero(
-        "My Creations",
-        "Your saved work and generated content."
-    )
+    hero("My Creations", "Your creative workspace.")
     st.info(
-        "Your chat conversations are available in Chat History. "
-        "A separate cloud-based creations gallery can be added with persistent storage."
+        "Your conversations are saved in Chat History. "
+        "A separate persistent gallery for generated images can be added next."
     )
 
-# =========================================================
+# =====================================================
 # SETTINGS
-# =========================================================
+# =====================================================
 
 elif page == "Settings":
-    hero("Settings", "Manage your NEXTGEN AI configuration.")
+    hero("Settings", "Your AI platform configuration.")
 
-    st.markdown("### AI routing")
-    st.success(f"Main model: {GROQ_MODEL}")
-    st.success(f"Backup model: {GEMINI_MODEL}")
-    st.info("Model selection is automatic. No model selector is shown.")
+    st.markdown("### AI Routing")
+    st.success(f"Main: Groq — {GROQ_MODEL}")
+    st.success(f"Backup: Gemini — {GEMINI_MODEL}")
+    st.caption("Gemini is called only once if the Groq request fails.")
 
-    st.markdown("### Cloudflare")
-    st.write(f"Image model: `{CF_IMAGE_MODEL}`")
-    st.write(f"Voice transcription: `{CF_WHISPER_MODEL}`")
-    st.write(
-        "Live Voice URL: Configured"
-        if CF_VOICE_URL else
-        "Live Voice URL: Not configured"
-    )
+    st.markdown("### Image Generation")
+    st.info(f"Cloudflare model: {IMAGE_MODEL}")
 
-    st.markdown("### API configuration")
+    st.markdown("### Live Voice")
+    if CF_LIVE_URL:
+        st.success("Cloudflare Voice Agent URL configured.")
+    else:
+        st.warning("Cloudflare Voice Agent URL is not configured.")
+
     st.caption(
-        "Add API keys in Streamlit Cloud → Settings → Secrets. "
-        "Never paste secret keys into public code or GitHub."
+        "Manage API credentials in Streamlit Cloud → Settings → Secrets."
     )
 
-# =========================================================
+# =====================================================
 # ABOUT
-# =========================================================
+# =====================================================
 
 elif page == "About":
     hero(
@@ -966,13 +1028,13 @@ elif page == "About":
     st.markdown("""
     ## Created by Arav
 
-    NEXTGEN AI is an independent AI platform built to bring together
-    learning, creativity, writing, productivity and intelligent assistance.
+    NEXTGEN AI brings AI assistance, learning, writing,
+    creativity and productivity together in one workspace.
 
-    **Main AI:** Groq  
-    **Backup AI:** Gemini  
-    **Image AI:** Cloudflare Workers AI  
-    **Voice services:** Cloudflare integration
+    - Main AI: Groq
+    - Backup AI: Gemini
+    - Image generation: Cloudflare Workers AI
+    - Voice agent: Cloudflare
     """)
 
     st.caption("NEXTGEN AI © 2026")

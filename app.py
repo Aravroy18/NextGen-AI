@@ -402,9 +402,8 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# ================= SIDEBAR =================
+# SIDEBAR
 with st.sidebar:
-
     st.write("👤 " + st.session_state.username)
 
     if st.button("＋ New Chat", use_container_width=True):
@@ -414,28 +413,55 @@ with st.sidebar:
             )
         else:
             st.session_state.guest_messages = []
-
         st.rerun()
 
     if st.session_state.user_id:
         chats = list_conversations(st.session_state.user_id)
-
         if chats:
             options = {
                 f"{title} · {date[:10]}": cid
                 for cid, title, date in chats
             }
-
-            selected = st.selectbox(
-                "Chat History",
-                list(options.keys())
-            )
-
+            selected = st.selectbox("Chat History", list(options.keys()))
             if options[selected] != st.session_state.cid:
                 st.session_state.cid = options[selected]
                 st.rerun()
 
     st.divider()
+
+    page = st.radio(
+        "NAVIGATION",
+        [
+            "Dashboard", "AI Chat", "Current Affairs",
+            "AI Tool Center", "App Builder", "Coding School",
+            "Language Learning", "Study Assistant", "PDF Assistant",
+            "AI Vision", "AI Image Studio", "Video Prompt Studio",
+            "Chat History", "About"
+        ]
+    )
+
+    if st.button("Logout"):
+        for key in ["logged_in", "user_id", "cid"]:
+            st.session_state[key] = False if key == "logged_in" else None
+        st.session_state.username = "Guest"
+        st.rerun()
+
+
+# MAIN PAGE
+st.markdown("## NEXTGEN AI")
+st.caption("One Platform. Endless Possibilities.")
+
+if page == "Dashboard":
+    st.title("🚀 Welcome to NEXTGEN AI")
+    st.metric("AI Assistant", "Ready")
+    st.metric("Web Search", "Automatic")
+    st.metric("Account", st.session_state.get("username", "Guest"))
+
+elif page == "AI Chat":
+    # यहाँ अपना पूरा AI Chat वाला पुराना code रखो
+    pass
+
+# बाकी pages के elif blocks यहाँ रहेंगे।
 
 # ================= NAVIGATION =================
 page = st.radio(

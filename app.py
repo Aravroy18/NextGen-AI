@@ -565,7 +565,14 @@ elif page == "AI Tool Center":
         Write a well-structured essay on: {topic}
 
         Writing Level: {writing_level}
-        Word Limit: Approximately {word_limit} words.
+        Word Limit: Maximum {word_limit} words.
+
+STRICT WORD LIMIT RULES:
+- Never exceed the requested word limit.
+- Keep the essay between 90% and 100% of the word limit.
+- Count the essay words before submitting.
+- Do not include headings in the word count.
+- If the essay exceeds the limit, shorten it before returning.
 
         {level_instruction[writing_level]}
 

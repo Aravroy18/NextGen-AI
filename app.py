@@ -453,11 +453,10 @@ with st.sidebar:
         ]
     )
 
-    st.divider()
-    st.session_state.search_enabled = st.toggle(
-        "🌐 Automatic Web Search",
-        value=True
-    )
+answer, sources = ai_reply(
+    history,
+    search_enabled=True
+)
 
     if st.button("Logout"):
         for key in ["logged_in", "user_id", "cid"]:

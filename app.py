@@ -516,8 +516,10 @@ elif page == "Current Affairs":
                     st.markdown(f"[{source['title']}]({source['url']})")
 
 # ================= TOOL CENTER =================
+
 elif page == "AI Tool Center":
     st.title("🧰 AI Tool Center")
+
     tool = st.selectbox(
         "Choose a tool",
         [
@@ -526,21 +528,102 @@ elif page == "AI Tool Center":
             "Code Helper", "Quiz Generator"
         ]
     )
-    content = st.text_area("Enter your text or instructions")
-    if st.button("Generate"):
+
+    # Essay Writer special options
+    if tool == "Essay Writer":
+        st.subheader("📝 AI Essay Writer")
+
+        topic = st.text_input(
+            "Enter Essay Topic",
+            placeholder="Example: Artificial Intelligence in Education"
+        )
+
+        writing_level = st.selectbox(
+            "Choose Writing Level",
+            ["Beginner", "Intermediate", "Advanced"]
+        )
+
+        word_limit = st.selectbox(
+            "Choose Word Limit",
+            [100, 300, 500, 600, 800, 1000]
+        )
+
+        extra_instructions = st.text_area(
+            "Additional Instructions",
+            placeholder="Write any special instructions here..."
+        )
+
+        level_instruction = {
+            "Beginner": "Use simple words and short sentences.",
+            "Intermediate": "Use clear language and moderate vocabulary.",
+            "Advanced": "Use advanced vocabulary and detailed explanations."
+        }
+
+        content = topic
+
+        prompt = f"""
+        Write a well-structured essay on: {topic}
+
+        Writing Level: {writing_level}
+        Word Limit: Approximately {word_limit} words.
+
+        {level_instruction[writing_level]}
+
+        Additional Instructions:
+        {extra_instructions}
+
+        Include an attractive introduction, relevant examples,
+        properly organized paragraphs and a meaningful conclusion.
+        Follow the requested word limit.
+        """
+
+    else:
+        content = st.text_area(
+            "Enter your text or instructions"
+        )
+
         instructions = {
             "Text Summarizer": "Summarize this text.",
             "Email Writer": "Write a professional email.",
-            "Essay Writer": "Write a well-structured essay.",
             "Translator": "Translate this text accurately.",
             "Grammar Corrector": "Correct grammar and explain corrections.",
             "Idea Generator": "Generate creative ideas.",
             "Code Helper": "Write and explain code.",
             "Quiz Generator": "Create a quiz with answers."
         }
-        if content:
-            answer, _ = ask_ai(instructions[tool] + "\n\n" + content)
-            st.markdown(answer)
+
+        prompt = instructions[tool] + "\n\n" + content
+
+    # Generate button
+    if st.button("🚀 Generate", key="tool_generate"):
+        if content and content.strip():
+            with st.spinner("AI is generating..."):
+                answer, _ = ask_ai(prompt)
+
+            st.session_state["tool_answer"] = answer
+            st.session_state["tool_prompt"] = prompt
+            st.session_state["tool_name"] = tool
+        else:
+            st.warning("Please enter your topic or text.")
+
+    # Show previous result and regenerate
+    if st.session_state.get("tool_name") == tool:
+        if st.button("🔄 Regenerate", key="tool_regenerate"):
+            with st.spinner("Generating a new response..."):
+                answer, _ = ask_ai(
+                    st.session_state["tool_prompt"]
+                )
+            st.session_state["tool_answer"] = answer
+
+        answer = st.session_state.get("tool_answer", "")
+
+        st.markdown("### ✨ Generated Result")
+        st.markdown(answer)
+
+        if tool == "Essay Writer":
+            word_count = len(answer.split())
+            st.metric("📊 Total Words", word_count)
+
 
 # ================= APP BUILDER =================
 elif page == "App Builder":

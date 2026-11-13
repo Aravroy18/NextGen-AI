@@ -10,10 +10,10 @@ import streamlit.components.v1 as components
 from pypdf import PdfReader
 
 from voicecall import (
-    create_client_secret,
-    generate_speech,
+    REALTIME_VOICES,
     VOICES,
-    REALTIME_VOICES
+    create_client_secret,
+    generate_speech
 )
 
 # ---------------- CONFIG ----------------

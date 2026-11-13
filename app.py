@@ -432,45 +432,7 @@ with st.sidebar:
 
     st.divider()
 
-    page = st.radio(
-        "NAVIGATION",
-        [
-            "Dashboard",
-            "AI Chat",
-            "Current Affairs",
-            "AI Tool Center",
-            "App Builder",
-            "Coding School",
-            "Language Learning",
-            "Study Assistant",
-            "PDF Assistant",
-            "AI Vision",
-            "AI Image Studio",
-            "Video Prompt Studio",
-            "Chat History",
-            "About"
-        ]
-    )
-
-
-
-        if st.button("Logout"):
-    for key in ["logged_in", "user_id", "cid"]:
-        st.session_state[key] = False if key == "logged_in" else None
-
-    st.session_state.username = "Guest"
-    st.rerun()
-
-# ================= HEADER =================
-st.markdown('<div class="main-title">NEXTGEN AI</div>',
-            unsafe_allow_html=True)
-st.caption("One Platform. Endless Possibilities.")
-st.divider()
-
-# ================= DASHBOARD =================
-if page == "Dashboard":
-    st.title("🚀 Welcome to NEXTGEN AI")
-    a,b,c = st.columns(3)
+   
     a.metric("AI Assistant", "Ready")
     b.metric("Web Search", "Always On")
     c.metric("Account", st.session_state.username)
@@ -492,6 +454,44 @@ if page == "Dashboard":
                 f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
                 unsafe_allow_html=True
             )
+
+page = st.radio(
+    "NAVIGATION",
+    [
+        "Dashboard",
+        "AI Chat",
+        "Current Affairs",
+        "AI Tool Center",
+        "App Builder",
+        "Coding School",
+        "Language Learning",
+        "Study Assistant",
+        "PDF Assistant",
+        "AI Vision",
+        "AI Image Studio",
+        "Video Prompt Studio",
+        "Chat History",
+        "About"
+    ]
+)
+
+if st.button("Logout"):
+    for key in ["logged_in", "user_id", "cid"]:
+        st.session_state[key] = False if key == "logged_in" else None
+
+    st.session_state.username = "Guest"
+    st.rerun()
+
+# ================= HEADER =================
+st.markdown('<div class="main-title">NEXTGEN AI</div>',
+            unsafe_allow_html=True)
+st.caption("One Platform. Endless Possibilities.")
+st.divider()
+
+# ================= DASHBOARD =================
+if page == "Dashboard":
+    st.title("🚀 Welcome to NEXTGEN AI")
+    a,b,c = st.columns(3)
 
 # ================= CHAT =================
 elif page == "AI Chat":

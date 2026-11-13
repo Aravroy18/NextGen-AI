@@ -14,7 +14,7 @@
 # XAI_API_KEY = "..."
 # XAI_MODEL = "grok-3"
 # GEMINI_API_KEY = "..."
-# GEMINI_MODEL = "gemini-2.5-flash"
+# GEMINI_MODEL = "gemini-3.5-flash"
 # TAVILY_API_KEY = "..."
 # FINNHUB_API_KEY = "..."
 # OWNER_NAME = "Arav"
@@ -76,7 +76,7 @@ XAI_API_KEY = secret("XAI_API_KEY")
 XAI_MODEL = secret("XAI_MODEL", "grok-3")
 
 GEMINI_API_KEY = secret("GEMINI_API_KEY")
-GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-3.5-flash")
 
 TAVILY_API_KEY = secret("TAVILY_API_KEY")
 FINNHUB_API_KEY = secret("FINNHUB_API_KEY")

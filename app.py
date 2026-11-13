@@ -83,7 +83,7 @@ CF_ACCOUNT = env("CLOUDFLARE_ACCOUNT_ID")
 CF_TOKEN = env("CLOUDFLARE_API_TOKEN")
 
 GROQ_MODEL = env("GROQ_MODEL", "openai/gpt-oss-120b")
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-3.5-flash")
 
 # ============================================================
 # UI THEME

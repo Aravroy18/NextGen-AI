@@ -519,16 +519,7 @@ if page == "Dashboard":
             st.session_state.get("username", "Guest")
         )
 
-    cards = [
-        ("💬 AI Chat", "Ask questions and get AI answers."),
-        ("🌐 Current Affairs", "Explore recent news and events."),
-        ("🛠️ App Builder", "Plan and generate app code."),
-        ("💻 Coding School", "Learn programming from zero."),
-        ("🌍 Languages", "Practise English and other languages."),
-        ("📚 Study Assistant", "Understand school subjects."),
-        ("📄 PDF Assistant", "Ask questions about documents."),
-        ("🎙️ Live Voice", "Animated voice interface.")
-    ]
+    
 
     cols = st.columns(2)
 

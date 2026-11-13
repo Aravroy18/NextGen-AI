@@ -7,6 +7,18 @@ OPENAI_BASE = "https://api.openai.com/v1"
 REALTIME_MODEL = "gpt-realtime"
 
 TTS_MODEL = "gpt-4o-mini-tts"
+REALTIME_VOICES = [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar"
+]
 
 VOICES = [
     "alloy",
@@ -21,7 +33,7 @@ VOICES = [
     "shimmer",
     "verse",
     "marin",
-    "cedar",
+    "cedar"
 ]
 
 

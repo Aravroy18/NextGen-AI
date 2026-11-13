@@ -493,8 +493,8 @@ if page == "Dashboard":
     st.title("🚀 Welcome to NEXTGEN AI")
 
     st.metric("AI Assistant", "Ready")
-st.metric("Web Search", "Always On")
-st.metric("Account", st.session_state.get("username", "Guest"))
+    st.metric("Web Search", "Always On")
+    st.metric("Account", st.session_state.get("username", "Guest"))
 
     cards = [
         ("💬 AI Chat", "Ask questions and get AI answers."),
@@ -514,6 +514,11 @@ st.metric("Account", st.session_state.get("username", "Guest"))
                 f'<div class="card"><h3>{title}</h3><p>{desc}</p></div>',
                 unsafe_allow_html=True
             )
+
+# ================= CHAT =================
+elif page == "AI Chat":
+    st.title("💬 AI Chat")
+
 
 # ================= CHAT =================
 elif page == "AI Chat":

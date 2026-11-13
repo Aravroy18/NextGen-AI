@@ -2,7 +2,6 @@ import os
 import io
 import sqlite3
 from pathlib import Path
-from voicecall import REALTIME_VOICES
 
 import requests
 import streamlit as st
@@ -13,9 +12,9 @@ from pypdf import PdfReader
 from voicecall import (
     create_client_secret,
     generate_speech,
-    VOICES
+    VOICES,
+    REALTIME_VOICES
 )
-
 
 # ---------------- CONFIG ----------------
 

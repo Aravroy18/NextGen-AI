@@ -28,3 +28,12 @@ google-genai
 pypdf
 gTTS
 extra-streamlit-components
+streamlit>=1.41.0
+requests>=2.32.0
+pandas>=2.2.0
+plotly>=5.24.0
+pypdf>=5.0.0
+Pillow>=11.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.12

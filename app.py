@@ -1524,12 +1524,7 @@ elif page == "AI Chat":
     # Web search control
     search_col, info_col = st.columns([1, 2])
 
-    with search_col:
-        web_enabled = st.toggle(
-            "⌕ Web Search",
-            value=st.session_state.web_search_enabled,
-            key="web_search_toggle"
-        )
+    
         st.session_state.web_search_enabled = web_enabled
 
     with info_col:

@@ -1781,7 +1781,7 @@ def smart_web_search(query):
 # IMAGE STUDIO
 # ============================================================
 
-if page == "AI Chat":
+if page == "IMAGE STUDIO":
 
     hero(
         "AI Image Studio",

@@ -382,64 +382,46 @@ def gemini_request(messages):
     data = response.json()
 
     return data["candidates"][0]["content"]["parts"][0]["text"]
-
+# ================= GROK PRIMARY + GEMINI BACKUP =================
 
 def ask_ai(messages):
     errors = []
 
-    if GROQ_KEY:
+    # GROK PRIMARY (xAI)
+    if GROK_KEY:
         try:
-            return groq_request(messages)
-        except Exception as exc:
-            errors.append(str(exc)[:250])
+            answer = grok_request(messages)
 
+            if answer and str(answer).strip():
+                return str(answer).strip()
+
+            errors.append("Grok returned an empty response.")
+
+        except Exception as exc:
+            errors.append(f"Grok: {str(exc)[:250]}")
+
+    # GEMINI BACKUP
     if GEMINI_KEY:
         try:
-            return gemini_request(messages)
-        except Exception as exc:
-            errors.append(str(exc)[:250])
+            answer = gemini_request(messages)
 
-    if not GROQ_KEY and not GEMINI_KEY:
+            if answer and str(answer).strip():
+                return str(answer).strip()
+
+            errors.append("Gemini returned an empty response.")
+
+        except Exception as exc:
+            errors.append(f"Gemini: {str(exc)[:250]}")
+
+    if not GROK_KEY and not GEMINI_KEY:
         raise RuntimeError(
-            "AI configuration missing. Check your API keys."
+            "Grok and Gemini API keys are missing from Secrets."
         )
 
     raise RuntimeError(
-        "AI services are temporarily unavailable. "
-        "Check your API keys, model access and internet connection."
+        "Both AI providers failed:\n" + "\n".join(errors)
     )
 
-
-def ask_ai_with_search(messages, query):
-    search_context, sources = web_search(query)
-
-    enhanced_messages = list(messages)
-
-    enhanced_messages[-1] = {
-        "role": "user",
-        "content": (
-            enhanced_messages[-1]["content"]
-            + "\n\nLIVE WEB SEARCH RESULTS:\n"
-            + search_context
-            + "\n\nUse these search results to answer accurately. "
-            "Mention uncertainty if sources disagree. "
-            "Do not invent information."
-        )
-    }
-
-    answer = ask_ai(enhanced_messages)
-
-    if sources:
-        answer += "\n\n### Sources\n"
-
-        for source in sources:
-            title = source.get("title", "Source")
-            url = source.get("url", "")
-
-            if url.startswith(("https://", "http://")):
-                answer += f"\n- [{title}]({url})"
-
-    return answer
 
 
 # ============================================================

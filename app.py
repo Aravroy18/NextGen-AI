@@ -1867,7 +1867,6 @@ elif page == "AI Chat":
     st.caption(
         "NEXTGEN AI Ready · Grok Primary · Gemini Backup · Smart Web Search"
     )
-    )
     # ============================================================
 # AI IMAGE STUDIO
 # ============================================================

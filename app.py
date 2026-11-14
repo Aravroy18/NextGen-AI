@@ -1781,7 +1781,7 @@ def smart_web_search(query):
 # IMAGE STUDIO
 # ============================================================
 
-elif page == "AI Image Studio":
+[elif page == "AI Image Studio":
 
     hero(
         "AI Image Studio",

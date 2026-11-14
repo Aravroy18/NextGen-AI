@@ -1,35 +1,18 @@
-# ============================================================
-# NEXTGEN AI — COMPLETE STREAMLIT APP
-# Authentication | Guest Mode | AI Chat | Finnhub | Cloudflare
-# SQLite | Image Studio | Stock Learning | App & Website Builder
-# ============================================================
 
-import os
-import io
-import re
-import json
-import time
-import uuid
-import base64
-import hashlib
-import hmac
-import sqlite3
-import zipfile
-import requests
 import streamlit as st
-
-from datetime import datetime, timedelta
-from html import escape
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
+import streamlit.components.v1 as components
+import requests
+import json
+import io
+import os
+import re
+import html
+import sqlite3
+import base64
+from datetime import datetime
 
 # ============================================================
-# 1. APP CONFIGURATION
+# NEXTGEN AI — MAX EDITION
 # ============================================================
 
 st.set_page_config(
@@ -39,797 +22,361 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-APP_NAME = "NEXTGEN AI"
-DB_FILE = "nextgen_ai.sqlite3"
-
-OPENAI_MODEL_DEFAULT = "gpt-4.1-mini"
-GEMINI_MODEL_DEFAULT = "gemini-2.5-flash"
-GROQ_MODEL_DEFAULT = "llama-3.3-70b-versatile"
-
-CLOUDFLARE_MODEL_DEFAULT = (
-    "@cf/black-forest-labs/flux-1-schnell"
-)
-
-SYSTEM_PROMPT = """
-You are NEXTGEN AI, a helpful, intelligent, friendly and professional
-AI assistant.
-
-Your creator is Arav, a student at Swami Vivekanand Shiksha Niketan.
-He is interested in AI, Python, technology, app development,
-creative projects and learning new skills.
-
-Be respectful, clear, useful and encouraging.
-Use the language used by the user: Hindi, English or Hinglish.
-Explain difficult topics in simple steps.
-Do not invent facts, awards, achievements or personal details.
-For current information, use web search when available.
-For finance, provide educational information and explain risks.
-Do not promise profits or give guaranteed stock predictions.
-"""
-
-
 # ============================================================
-# 2. SECRET MANAGEMENT
+# SECRETS CONFIGURATION
 # ============================================================
 
-def get_secret(key, default=""):
-    """
-    Read secrets from Streamlit Secrets first,
-    then from environment variables.
-    Supports root secrets and [api_keys] / [models].
-    """
-
-    value = ""
-
+def get_secret(name, default=""):
     try:
-        if key in st.secrets:
-            value = st.secrets[key]
-
-        if not value and "api_keys" in st.secrets:
-            section = st.secrets["api_keys"]
-            value = section.get(key, "")
-
-        if not value and "models" in st.secrets:
-            section = st.secrets["models"]
-            value = section.get(key, "")
-
+        return st.secrets.get(name, default)
     except Exception:
-        value = ""
-
-    if not value:
-        value = os.getenv(key, default)
-
-    return str(value or default).strip()
+        return default
 
 
-OPENAI_KEY = get_secret("OPENAI_API_KEY")
-GEMINI_KEY = get_secret("GEMINI_API_KEY")
 GROQ_KEY = get_secret("GROQ_API_KEY")
-
-FINNHUB_KEY = get_secret("FINNHUB_API_KEY")
+GEMINI_KEY = get_secret("GEMINI_API_KEY")
+OPENAI_KEY = get_secret("OPENAI_API_KEY")
 TAVILY_KEY = get_secret("TAVILY_API_KEY")
 
-CF_ACCOUNT_ID = get_secret("CLOUDFLARE_ACCOUNT_ID")
-CF_API_TOKEN = get_secret("CLOUDFLARE_API_TOKEN")
-
-OPENAI_MODEL = get_secret(
-    "OPENAI_MODEL",
-    OPENAI_MODEL_DEFAULT
+GROQ_MODEL = get_secret(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
 )
 
 GEMINI_MODEL = get_secret(
     "GEMINI_MODEL",
-    GEMINI_MODEL_DEFAULT
+    "gemini-3.5-flash"
 )
 
-GROQ_MODEL = get_secret(
-    "GROQ_MODEL",
-    GROQ_MODEL_DEFAULT
+OPENAI_MODEL = get_secret(
+    "OPENAI_MODEL",
+    "gpt-4.1"
 )
 
-CF_IMAGE_MODEL = get_secret(
-    "CLOUDFLARE_IMAGE_MODEL",
-    CLOUDFLARE_MODEL_DEFAULT
-)
-
-
 # ============================================================
-# 3. DATABASE
+# DATABASE
 # ============================================================
 
-def db_connect():
-    con = sqlite3.connect(
-        DB_FILE,
-        timeout=30,
-        check_same_thread=False
-    )
-    con.row_factory = sqlite3.Row
-    return con
+DB_FILE = "nextgen_ai.db"
 
 
-def init_database():
-    with db_connect() as con:
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            created_at TEXT
+        )
+    """)
 
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS chats (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                title TEXT DEFAULT 'New Chat',
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            role TEXT,
+            content TEXT,
+            created_at TEXT
+        )
+    """)
 
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS creations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                title TEXT,
-                category TEXT,
-                content TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        con.execute("""
-            CREATE INDEX IF NOT EXISTS idx_messages_chat
-            ON messages(chat_id, id)
-        """)
-
-        con.execute("""
-            CREATE INDEX IF NOT EXISTS idx_chats_user
-            ON chats(user_id, created_at)
-        """)
-
-        con.commit()
+    conn.commit()
+    conn.close()
 
 
-init_database()
+def create_chat():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-
-# ============================================================
-# 4. PASSWORD SECURITY
-# ============================================================
-
-def make_password_hash(password, salt=None):
-    if salt is None:
-        salt = os.urandom(16).hex()
-
-    hashed = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        bytes.fromhex(salt),
-        200000
-    ).hex()
-
-    return hashed, salt
-
-
-def verify_password(password, saved_hash, salt):
-    new_hash, _ = make_password_hash(password, salt)
-    return hmac.compare_digest(new_hash, saved_hash)
-
-
-# ============================================================
-# 5. SESSION STATE
-# ============================================================
-
-SESSION_DEFAULTS = {
-    "authenticated": False,
-    "user_id": None,
-    "user_name": "",
-    "user_email": "",
-    "guest_mode": False,
-    "page": "Dashboard",
-    "chat_id": None,
-    "messages": [],
-    "web_search_enabled": True,
-    "last_provider": "Not connected",
-    "last_search": "Not used",
-    "generated_image": None,
-    "generated_image_prompt": "",
-    "generated_project": None,
-    "generated_website": None,
-    "stock_symbol": "AAPL",
-    "stock_data": None,
-    "stock_history": None,
-    "image_rating": None
-}
-
-for key, value in SESSION_DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-# ============================================================
-# 6. AUTHENTICATION FUNCTIONS
-# ============================================================
-
-def create_account(name, email, password):
-    name = name.strip()
-    email = email.strip().lower()
-
-    if len(name) < 2:
-        return False, "Please enter your name."
-
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        return False, "Please enter a valid email address."
-
-    if len(password) < 8:
-        return False, "Password must contain at least 8 characters."
-
-    password_hash, salt = make_password_hash(password)
-    user_id = str(uuid.uuid4())
-
-    try:
-        with db_connect() as con:
-            con.execute("""
-                INSERT INTO users
-                (id, name, email, password_hash, salt)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                user_id,
-                name,
-                email,
-                password_hash,
-                salt
-            ))
-            con.commit()
-
-        return True, user_id
-
-    except sqlite3.IntegrityError:
-        return False, "An account with this email already exists."
-
-    except sqlite3.Error:
-        return False, "Could not create account. Please try again."
-
-
-def authenticate_user(email, password):
-    email = email.strip().lower()
-
-    try:
-        with db_connect() as con:
-            user = con.execute("""
-                SELECT *
-                FROM users
-                WHERE email = ?
-            """, (email,)).fetchone()
-
-        if not user:
-            return None
-
-        if verify_password(
-            password,
-            user["password_hash"],
-            user["salt"]
-        ):
-            return dict(user)
-
-        return None
-
-    except sqlite3.Error:
-        return None
-
-
-def start_user_session(user):
-    st.session_state.authenticated = True
-    st.session_state.guest_mode = False
-    st.session_state.user_id = user["id"]
-    st.session_state.user_name = user["name"]
-    st.session_state.user_email = user["email"]
-    st.session_state.page = "Dashboard"
-    st.session_state.chat_id = None
-    st.session_state.messages = []
-
-
-def start_guest_session():
-    guest_id = "guest_" + str(uuid.uuid4())
-
-    st.session_state.authenticated = True
-    st.session_state.guest_mode = True
-    st.session_state.user_id = guest_id
-    st.session_state.user_name = "Guest"
-    st.session_state.user_email = ""
-    st.session_state.page = "Dashboard"
-    st.session_state.chat_id = None
-    st.session_state.messages = []
-
-
-def logout():
-    for key in SESSION_DEFAULTS:
-        if key in st.session_state:
-            st.session_state[key] = SESSION_DEFAULTS[key]
-
-    st.rerun()
-
-
-# ============================================================
-# 7. AUTHENTICATION SCREEN
-# ============================================================
-
-def authentication_screen():
-
-    st.markdown("""
-    <style>
-    .auth-wrap {
-        max-width: 650px;
-        margin: 55px auto 20px auto;
-        padding: 30px;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 22px;
-        background: rgba(20,25,43,.92);
-        box-shadow: 0 15px 50px rgba(0,0,0,.25);
-    }
-    .auth-title {
-        font-size: 42px;
-        font-weight: 800;
-        text-align: center;
-        color: white;
-        letter-spacing: 1px;
-    }
-    .auth-subtitle {
-        text-align: center;
-        color: #c7cbd5;
-        margin-bottom: 25px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(
-        '<div class="auth-wrap">'
-        '<div class="auth-title">✦ NEXTGEN AI</div>'
-        '<div class="auth-subtitle">'
-        'Your intelligent workspace'
-        '</div></div>',
-        unsafe_allow_html=True
+    cur.execute(
+        "INSERT INTO chats (title, created_at) VALUES (?, ?)",
+        ("New Chat", datetime.now().isoformat())
     )
 
-    left, center, right = st.columns([1, 2, 1])
+    chat_id = cur.lastrowid
+    conn.commit()
+    conn.close()
 
-    with center:
+    return chat_id
 
-        signup_tab, login_tab, guest_tab = st.tabs([
-            "✦ Sign Up",
-            "↪ Login",
-            "Continue as Guest"
-        ])
 
-        with signup_tab:
-            st.subheader("Create your account")
+def get_chats():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-            with st.form("signup_form"):
-                name = st.text_input("Full name")
-                email = st.text_input("Email address")
-                password = st.text_input(
-                    "Password",
-                    type="password"
-                )
-                confirm = st.text_input(
-                    "Confirm password",
-                    type="password"
-                )
-
-                submitted = st.form_submit_button(
-                    "Create Account",
-                    use_container_width=True
-                )
-
-                if submitted:
-
-                    if password != confirm:
-                        st.error("Passwords do not match.")
-
-                    else:
-                        success, result = create_account(
-                            name,
-                            email,
-                            password
-                        )
-
-                        if success:
-                            st.success("Account created successfully!")
-
-                            user = {
-                                "id": result,
-                                "name": name.strip(),
-                                "email": email.strip().lower()
-                            }
-
-                            start_user_session(user)
-                            st.rerun()
-
-                        else:
-                            st.error(result)
-
-        with login_tab:
-            st.subheader("Welcome back")
-
-            with st.form("login_form"):
-                login_email = st.text_input(
-                    "Email address",
-                    key="login_email"
-                )
-
-                login_password = st.text_input(
-                    "Password",
-                    type="password",
-                    key="login_password"
-                )
-
-                login_submit = st.form_submit_button(
-                    "Login",
-                    use_container_width=True
-                )
-
-                if login_submit:
-                    user = authenticate_user(
-                        login_email,
-                        login_password
-                    )
-
-                    if user:
-                        start_user_session(user)
-                        st.rerun()
-                    else:
-                        st.error(
-                            "Incorrect email or password."
-                        )
-
-        with guest_tab:
-            st.subheader("Explore NEXTGEN AI")
-
-            st.write(
-                "Continue without creating an account. "
-                "Guest data is kept separate from registered accounts."
-            )
-
-            if st.button(
-                "Continue as Guest",
-                use_container_width=True
-            ):
-                start_guest_session()
-                st.rerun()
-
-    st.caption(
-        "Use an account only on a device you trust. "
-        "Guest sessions are not a substitute for a registered account."
+    cur.execute(
+        "SELECT id, title FROM chats ORDER BY id DESC"
     )
 
+    result = cur.fetchall()
+    conn.close()
 
-# ============================================================
-# 8. DATABASE CHAT FUNCTIONS
-# ============================================================
-
-def create_new_chat():
-    chat_id = str(uuid.uuid4())
-    user_id = st.session_state.user_id
-
-    try:
-        with db_connect() as con:
-            con.execute("""
-                INSERT INTO chats (id, user_id, title)
-                VALUES (?, ?, ?)
-            """, (
-                chat_id,
-                user_id,
-                "New Chat"
-            ))
-            con.commit()
-
-        st.session_state.chat_id = chat_id
-        st.session_state.messages = []
-
-        return chat_id
-
-    except sqlite3.Error as exc:
-        st.error(f"Could not create chat: {exc}")
-        return None
-
-
-def get_user_chats():
-    user_id = st.session_state.user_id
-
-    try:
-        with db_connect() as con:
-            rows = con.execute("""
-                SELECT id, title, created_at
-                FROM chats
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-            """, (user_id,)).fetchall()
-
-        return [dict(row) for row in rows]
-
-    except sqlite3.Error:
-        return []
-
-
-def get_messages(chat_id):
-    if not chat_id:
-        return []
-
-    try:
-        with db_connect() as con:
-            rows = con.execute("""
-                SELECT role, content
-                FROM messages
-                WHERE chat_id = ?
-                  AND user_id = ?
-                ORDER BY id ASC
-            """, (
-                chat_id,
-                st.session_state.user_id
-            )).fetchall()
-
-        return [
-            {
-                "role": row["role"],
-                "content": row["content"]
-            }
-            for row in rows
-        ]
-
-    except sqlite3.Error as exc:
-        st.error(f"Chat history error: {exc}")
-        return []
+    return result
 
 
 def save_message(chat_id, role, content):
-    if not chat_id:
-        return False
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-    try:
-        with db_connect() as con:
-            con.execute("""
-                INSERT INTO messages
-                (chat_id, user_id, role, content)
-                VALUES (?, ?, ?, ?)
-            """, (
-                chat_id,
-                st.session_state.user_id,
-                role,
-                str(content)
-            ))
+    cur.execute("""
+        INSERT INTO messages
+        (chat_id, role, content, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (
+        chat_id,
+        role,
+        content,
+        datetime.now().isoformat()
+    ))
 
-            if role == "user":
-                title = str(content).strip()[:45]
-
-                con.execute("""
-                    UPDATE chats
-                    SET title = ?
-                    WHERE id = ? AND user_id = ?
-                """, (
-                    title or "New Chat",
-                    chat_id,
-                    st.session_state.user_id
-                ))
-
-            con.commit()
-
-        return True
-
-    except sqlite3.Error as exc:
-        st.error(f"Could not save message: {exc}")
-        return False
+    conn.commit()
+    conn.close()
 
 
-def delete_current_chat():
-    chat_id = st.session_state.chat_id
+def get_messages(chat_id):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-    if not chat_id:
-        return
+    cur.execute("""
+        SELECT role, content
+        FROM messages
+        WHERE chat_id = ?
+        ORDER BY id ASC
+    """, (chat_id,))
 
-    try:
-        with db_connect() as con:
-            con.execute("""
-                DELETE FROM messages
-                WHERE chat_id = ? AND user_id = ?
-            """, (
-                chat_id,
-                st.session_state.user_id
-            ))
+    result = cur.fetchall()
+    conn.close()
 
-            con.execute("""
-                DELETE FROM chats
-                WHERE id = ? AND user_id = ?
-            """, (
-                chat_id,
-                st.session_state.user_id
-            ))
-
-            con.commit()
-
-        st.session_state.chat_id = None
-        st.session_state.messages = []
-
-    except sqlite3.Error as exc:
-        st.error(f"Could not delete chat: {exc}")
+    return [
+        {"role": role, "content": content}
+        for role, content in result
+    ]
 
 
-# ============================================================
-# 9. AI RESPONSE HELPERS
-# ============================================================
+def update_chat_title(chat_id, title):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-def extract_openai_text(data):
-    if data.get("output_text"):
-        return data["output_text"]
-
-    output_text = []
-
-    for item in data.get("output", []):
-        for part in item.get("content", []):
-            if part.get("type") in ("output_text", "text"):
-                output_text.append(
-                    part.get("text", "")
-                )
-
-    return "\n".join(output_text).strip()
-
-
-def prepare_ai_input(messages):
-    prepared = []
-
-    for message in messages[-20:]:
-        role = message.get("role", "user")
-
-        if role not in ("user", "assistant"):
-            continue
-
-        prepared.append({
-            "role": role,
-            "content": str(message.get("content", ""))
-        })
-
-    return prepared
-
-
-# ============================================================
-# 10. OPENAI
-# ============================================================
-
-def openai_request(messages, use_web_search=False):
-
-    if not OPENAI_KEY:
-        raise RuntimeError("OpenAI API key is not configured.")
-
-    payload = {
-        "model": OPENAI_MODEL,
-        "instructions": SYSTEM_PROMPT,
-        "input": prepare_ai_input(messages)
-    }
-
-    if use_web_search:
-        payload["tools"] = [
-            {"type": "web_search"}
-        ]
-
-    response = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {OPENAI_KEY}",
-            "Content-Type": "application/json"
-        },
-        json=payload,
-        timeout=90
+    cur.execute(
+        "UPDATE chats SET title = ? WHERE id = ?",
+        (title[:45], chat_id)
     )
 
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"OpenAI error {response.status_code}: "
-            f"{response.text[:350]}"
-        )
+    conn.commit()
+    conn.close()
 
-    data = response.json()
-    answer = extract_openai_text(data)
 
-    if not answer:
-        raise RuntimeError("OpenAI returned an empty answer.")
-
-    return answer
-
+init_db()
 
 # ============================================================
-# 11. GEMINI
+# SESSION STATE
 # ============================================================
 
-def gemini_request(messages):
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = create_chat()
 
-    if not GEMINI_KEY:
-        raise RuntimeError("Gemini API key is not configured.")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    contents = []
+if "pending_prompt" not in st.session_state:
+    st.session_state.pending_prompt = None
 
-    for message in prepare_ai_input(messages):
-        role = (
-            "model"
-            if message["role"] == "assistant"
-            else "user"
-        )
+if "last_prompt" not in st.session_state:
+    st.session_state.last_prompt = ""
 
-        contents.append({
-            "role": role,
-            "parts": [
-                {"text": message["content"]}
-            ]
-        })
+if "liked" not in st.session_state:
+    st.session_state.liked = {}
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{GEMINI_MODEL}:generateContent"
-        f"?key={GEMINI_KEY}"
-    )
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
 
-    response = requests.post(
-        url,
-        json={
-            "systemInstruction": {
-                "parts": [{"text": SYSTEM_PROMPT}]
-            },
-            "contents": contents
-        },
-        timeout=90
-    )
-
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Gemini error {response.status_code}: "
-            f"{response.text[:350]}"
-        )
-
-    data = response.json()
-
-    answer = (
-        data.get("candidates", [{}])[0]
-        .get("content", {})
-        .get("parts", [{}])[0]
-        .get("text", "")
-    )
-
-    if not answer:
-        raise RuntimeError("Gemini returned an empty answer.")
-
-    return answer
-
+if "uploaded_files" not in st.session_state:
+    st.session_state.uploaded_files = []
 
 # ============================================================
-# 12. GROQ
+# PREMIUM CSS
+# ============================================================
+
+st.markdown("""
+<style>
+
+@import url(
+'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
+);
+
+:root {
+    --bg: #080b14;
+    --panel: #101625;
+    --border: rgba(255,255,255,.09);
+    --text: #f4f6ff;
+    --muted: #929bb1;
+    --accent: #9275ff;
+}
+
+html, body, [data-testid="stAppViewContainer"] {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, sans-serif;
+}
+
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stSidebar"] {
+    background: #0b1020;
+    border-right: 1px solid var(--border);
+}
+
+.block-container {
+    max-width: 1250px;
+    padding-top: 2rem;
+    padding-bottom: 5rem;
+}
+
+.hero {
+    padding: 35px;
+    border: 1px solid var(--border);
+    border-radius: 25px;
+    background:
+        radial-gradient(
+            circle at 90% 10%,
+            rgba(117,83,255,.22),
+            transparent 40%
+        ),
+        linear-gradient(135deg,#151c31,#0c1221);
+    margin-bottom: 25px;
+}
+
+.eyebrow {
+    color: #a997ff;
+    letter-spacing: 4px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.brand {
+    font-size: 48px;
+    font-weight: 800;
+    color: white;
+    margin-top: 12px;
+    letter-spacing: -2px;
+}
+
+.tagline {
+    color: #b4bdd0;
+    margin-top: 10px;
+    font-size: 15px;
+}
+
+.stat-card {
+    background: #11192b;
+    border: 1px solid var(--border);
+    border-radius: 17px;
+    padding: 20px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: white;
+}
+
+.stat-label {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.feature-card {
+    background: linear-gradient(145deg,#151e32,#0d1424);
+    border: 1px solid var(--border);
+    padding: 23px;
+    border-radius: 18px;
+    min-height: 140px;
+    transition: .2s;
+}
+
+.feature-card:hover {
+    border-color: #9275ff;
+    transform: translateY(-3px);
+}
+
+.feature-icon {
+    font-size: 25px;
+    margin-bottom: 12px;
+}
+
+.feature-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+}
+
+.feature-desc {
+    color: #9ba6bc;
+    font-size: 12px;
+    margin-top: 7px;
+}
+
+div[data-testid="stButton"] button {
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #151d30;
+    color: white;
+    min-height: 40px;
+    transition: .2s;
+}
+
+div[data-testid="stButton"] button:hover {
+    border-color: #9275ff;
+    color: white;
+    background: #222442;
+}
+
+[data-testid="stChatMessage"] {
+    background: #111827;
+    border: 1px solid var(--border);
+    border-radius: 17px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+[data-testid="stChatInput"] {
+    border: 1px solid #37335d;
+    border-radius: 22px;
+}
+
+h1, h2, h3 {
+    color: white;
+}
+
+.muted {
+    color: #929bb1;
+}
+
+hr {
+    border-color: var(--border);
+}
+
+.small-action {
+    color: #aeb6c9;
+    font-size: 12px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# AI PROVIDERS
 # ============================================================
 
 def groq_request(messages):
 
     if not GROQ_KEY:
-        raise RuntimeError("Groq API key is not configured.")
-
-    chat_messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ]
-
-    chat_messages.extend(prepare_ai_input(messages))
+        raise Exception("Groq API key missing")
 
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -839,2041 +386,1165 @@ def groq_request(messages):
         },
         json={
             "model": GROQ_MODEL,
-            "messages": chat_messages
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096
         },
         timeout=90
     )
 
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Groq error {response.status_code}: "
-            f"{response.text[:350]}"
-        )
+    response.raise_for_status()
+
+    return response.json()["choices"][0]["message"]["content"]
+
+
+def gemini_request(messages):
+
+    if not GEMINI_KEY:
+        raise Exception("Gemini API key missing")
+
+    prompt = "\n\n".join(
+        f"{m['role'].upper()}: {m['content']}"
+        for m in messages
+    )
+
+    url = (
+        "https://generativelanguage.googleapis.com/"
+        f"v1beta/models/{GEMINI_MODEL}:generateContent"
+    )
+
+    response = requests.post(
+        url,
+        params={"key": GEMINI_KEY},
+        json={
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 4096
+            }
+        },
+        timeout=90
+    )
+
+    response.raise_for_status()
 
     data = response.json()
 
-    answer = (
-        data.get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+def openai_request(messages):
+
+    if not OPENAI_KEY:
+        raise Exception("OpenAI API key missing")
+
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": OPENAI_MODEL,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096
+        },
+        timeout=90
     )
 
-    if not answer:
-        raise RuntimeError("Groq returned an empty answer.")
+    response.raise_for_status()
 
-    return answer
+    return response.json()["choices"][0]["message"]["content"]
 
-
-# ============================================================
-# 13. AI PROVIDER ROUTER
-# ============================================================
 
 def ask_ai(messages):
 
-    providers = [
-        ("OpenAI", OPENAI_KEY, openai_request),
-        ("Gemini", GEMINI_KEY, gemini_request),
-        ("Groq", GROQ_KEY, groq_request)
-    ]
-
     errors = []
 
-    for provider_name, api_key, provider_function in providers:
+    providers = [
+        groq_request,
+        gemini_request,
+        openai_request
+    ]
 
-        if not api_key:
-            continue
-
+    for provider in providers:
         try:
-            answer = provider_function(messages)
-
-            st.session_state.last_provider = provider_name
-
-            return answer
-
+            return provider(messages)
         except Exception as exc:
-            errors.append(
-                f"{provider_name}: {str(exc)[:250]}"
-            )
+            errors.append(str(exc)[:250])
 
-    if not errors:
-        raise RuntimeError(
-            "No AI API key is configured. "
-            "Add OPENAI_API_KEY, GEMINI_API_KEY "
-            "or GROQ_API_KEY in Streamlit Secrets."
-        )
-
-    raise RuntimeError(
-        "All configured AI providers failed:\n"
-        + "\n".join(errors)
+    raise Exception(
+        "All configured AI providers failed. "
+        + " | ".join(errors)
     )
 
-
 # ============================================================
-# 14. SMART WEB SEARCH
+# SMART WEB SEARCH
 # ============================================================
 
 def needs_web_search(query):
 
     keywords = [
-        "today",
-        "latest",
-        "current",
-        "now",
-        "news",
-        "weather",
-        "price today",
-        "live price",
-        "recent",
-        "2026",
-        "अभी",
-        "आज",
-        "ताजा",
-        "लेटेस्ट",
-        "न्यूज़",
-        "समाचार",
-        "वर्तमान",
-        "कीमत अभी"
+        "latest", "today", "current", "now",
+        "news", "price", "weather", "recent",
+        "2026", "stock price", "live",
+        "अभी", "आज", "ताजा", "लेटेस्ट",
+        "वर्तमान", "समाचार", "भाव"
     ]
 
-    query_lower = query.lower()
-
     return any(
-        keyword in query_lower
-        for keyword in keywords
+        word in query.lower()
+        for word in keywords
     )
 
 
-def tavily_search(query):
+def smart_web_search(query):
 
     if not TAVILY_KEY:
-        raise RuntimeError("Tavily API key is not configured.")
-
-    response = requests.post(
-        "https://api.tavily.com/search",
-        json={
-            "api_key": TAVILY_KEY,
-            "query": query,
-            "search_depth": "basic",
-            "max_results": 5
-        },
-        timeout=35
-    )
-
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Tavily error: {response.text[:250]}"
-        )
-
-    data = response.json()
-
-    results = []
-
-    for item in data.get("results", []):
-        results.append(
-            "Title: " + item.get("title", "") +
-            "\nURL: " + item.get("url", "") +
-            "\nContent: " + item.get("content", "")
-        )
-
-    return "\n\n".join(results)
-
-
-def smart_ai_answer(messages):
-
-    latest_prompt = messages[-1]["content"]
-
-    if (
-        st.session_state.web_search_enabled
-        and needs_web_search(latest_prompt)
-    ):
-
-        if OPENAI_KEY:
-            try:
-                answer = openai_request(
-                    messages,
-                    use_web_search=True
-                )
-
-                st.session_state.last_provider = (
-                    "OpenAI Web Search"
-                )
-                st.session_state.last_search = "OpenAI Web Search"
-
-                return answer
-
-            except Exception:
-                pass
-
-        if TAVILY_KEY:
-            try:
-                search_results = tavily_search(
-                    latest_prompt
-                )
-
-                augmented = list(messages)
-
-                augmented[-1] = {
-                    "role": "user",
-                    "content": (
-                        latest_prompt
-                        + "\n\nUse the following live search "
-                        "results where relevant. Explain uncertainty "
-                        "and do not invent facts:\n\n"
-                        + search_results
-                    )
-                }
-
-                answer = ask_ai(augmented)
-
-                st.session_state.last_search = "Tavily"
-
-                return answer
-
-            except Exception:
-                pass
-
-        st.session_state.last_search = (
-            "Search unavailable"
-        )
-
-    else:
-        st.session_state.last_search = "Not used"
-
-    return ask_ai(messages)
-
-
-# ============================================================
-# 15. CLOUDFLARE IMAGE GENERATION
-# ============================================================
-
-def generate_cloudflare_image(prompt):
-
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
-        raise RuntimeError(
-            "Cloudflare Account ID or API Token is missing."
-        )
-
-    endpoint = (
-        "https://api.cloudflare.com/client/v4/accounts/"
-        f"{CF_ACCOUNT_ID}/ai/run/{CF_IMAGE_MODEL}"
-    )
-
-    response = requests.post(
-        endpoint,
-        headers={
-            "Authorization": f"Bearer {CF_API_TOKEN}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "prompt": prompt,
-            "steps": 4
-        },
-        timeout=180
-    )
-
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Cloudflare error {response.status_code}: "
-            f"{response.text[:400]}"
-        )
-
-    content_type = response.headers.get(
-        "content-type", ""
-    ).lower()
-
-    if content_type.startswith("image/"):
-        return response.content
-
-    data = response.json()
-
-    if data.get("success") is False:
-        raise RuntimeError(
-            str(data.get("errors", data))[:500]
-        )
-
-    result = data.get("result", {})
-
-    image_data = None
-
-    if isinstance(result, dict):
-        image_data = (
-            result.get("image")
-            or result.get("data")
-            or result.get("output")
-        )
-
-    elif isinstance(result, str):
-        image_data = result
-
-    if isinstance(image_data, list) and image_data:
-        image_data = image_data[0]
-
-    if not image_data:
-        raise RuntimeError(
-            "Cloudflare did not return an image."
-        )
-
-    if isinstance(image_data, str):
-        if image_data.startswith("data:image"):
-            image_data = image_data.split(",", 1)[1]
-
-        return base64.b64decode(image_data)
-
-    raise RuntimeError("Unsupported Cloudflare image response.")
-
-
-# ============================================================
-# 16. FINNHUB STOCK DATA
-# ============================================================
-
-def finnhub_quote(symbol):
-
-    if not FINNHUB_KEY:
-        raise RuntimeError(
-            "FINNHUB_API_KEY is missing from Streamlit Secrets."
-        )
-
-    response = requests.get(
-        "https://finnhub.io/api/v1/quote",
-        params={
-            "symbol": symbol.upper(),
-            "token": FINNHUB_KEY
-        },
-        timeout=25
-    )
-
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Finnhub quote error: {response.text[:250]}"
-        )
-
-    data = response.json()
-
-    if not data or data.get("c") in (None, 0):
-        raise RuntimeError(
-            "Finnhub returned no quote. Check the symbol "
-            "and your Finnhub API access."
-        )
-
-    return data
-
-
-def finnhub_candles(symbol, days=30):
-
-    if not FINNHUB_KEY:
-        raise RuntimeError("Finnhub API key is missing.")
-
-    end_time = int(time.time())
-    start_time = int(
-        (datetime.utcnow() - timedelta(days=days)).timestamp()
-    )
-
-    response = requests.get(
-        "https://finnhub.io/api/v1/stock/candle",
-        params={
-            "symbol": symbol.upper(),
-            "resolution": "D",
-            "from": start_time,
-            "to": end_time,
-            "token": FINNHUB_KEY
-        },
-        timeout=30
-    )
-
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Finnhub chart error: {response.text[:250]}"
-        )
-
-    data = response.json()
-
-    if data.get("s") != "ok":
-        raise RuntimeError(
-            "Historical candles are unavailable for this symbol "
-            "or API plan."
-        )
-
-    return data
-
-
-def calculate_stock_summary(quote):
-
-    current = float(quote.get("c", 0))
-    previous = float(quote.get("pc", 0))
-    change = float(quote.get("d", 0))
-    percent = float(quote.get("dp", 0))
-
-    direction = (
-        "up"
-        if change > 0
-        else "down"
-        if change < 0
-        else "unchanged"
-    )
-
-    return {
-        "current": current,
-        "previous": previous,
-        "change": change,
-        "percent": percent,
-        "direction": direction
-    }
-
-
-# ============================================================
-# 17. CREATIONS DATABASE
-# ============================================================
-
-def save_creation(title, category, content):
+        return ""
 
     try:
-        with db_connect() as con:
-            con.execute("""
-                INSERT INTO creations
-                (user_id, title, category, content)
-                VALUES (?, ?, ?, ?)
-            """, (
-                st.session_state.user_id,
-                title,
-                category,
-                str(content)
-            ))
-            con.commit()
-
-        return True
-
-    except sqlite3.Error:
-        return False
-
-
-def get_creations():
-
-    try:
-        with db_connect() as con:
-            rows = con.execute("""
-                SELECT *
-                FROM creations
-                WHERE user_id = ?
-                ORDER BY id DESC
-            """, (
-                st.session_state.user_id,
-            )).fetchall()
-
-        return [dict(row) for row in rows]
-
-    except sqlite3.Error:
-        return []
-
-
-# ============================================================
-# 18. DOWNLOAD HELPER
-# ============================================================
-
-def make_zip_file(filename, content):
-
-    memory_file = io.BytesIO()
-
-    with zipfile.ZipFile(
-        memory_file,
-        "w",
-        zipfile.ZIP_DEFLATED
-    ) as zip_file:
-
-        zip_file.writestr(filename, content)
-
-    memory_file.seek(0)
-
-    return memory_file.getvalue()
-
-
-# ============================================================
-# 19. PROFESSIONAL DESIGN
-# ============================================================
-
-st.markdown("""
-<style>
-html, body, [class*="css"] {
-    color: #ffffff !important;
-}
-
-.stApp {
-    background:
-        radial-gradient(
-            circle at 15% 5%,
-            rgba(70, 65, 145, .20),
-            transparent 30%
-        ),
-        linear-gradient(
-            135deg,
-            #0b1020 0%,
-            #11172a 55%,
-            #0b1020 100%
-        );
-    color: #ffffff !important;
-}
-
-p, span, label, li, h1, h2, h3, h4, h5, h6 {
-    color: #ffffff !important;
-}
-
-[data-testid="stSidebar"] {
-    background: #101629;
-    border-right: 1px solid rgba(255,255,255,.08);
-}
-
-[data-testid="stSidebar"] * {
-    color: #ffffff !important;
-}
-
-.stButton > button {
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.13);
-    background: #222b45;
-    color: #ffffff !important;
-    min-height: 42px;
-    transition: .2s ease;
-}
-
-.stButton > button:hover {
-    background: #39476b;
-    border-color: #7889bd;
-    color: white !important;
-}
-
-.stTextInput input,
-.stTextArea textarea,
-.stSelectbox div[data-baseweb="select"] {
-    color: #ffffff !important;
-    background: #151e33 !important;
-}
-
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder {
-    color: #aeb8cb !important;
-}
-
-[data-testid="stChatMessage"] {
-    background: rgba(24,32,52,.85);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 15px;
-}
-
-[data-testid="stChatMessage"] p,
-[data-testid="stChatMessage"] li,
-[data-testid="stChatMessage"] span {
-    color: #ffffff !important;
-}
-
-.stMetric {
-    background: rgba(24,32,52,.75);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 14px;
-    padding: 15px;
-}
-
-.stMetric label,
-.stMetric [data-testid="stMetricValue"],
-.stMetric [data-testid="stMetricDelta"] {
-    color: white !important;
-}
-
-hr {
-    border-color: rgba(255,255,255,.12);
-}
-
-[data-testid="stAlert"] {
-    color: #ffffff !important;
-}
-
-footer {
-    visibility: hidden;
-}
-
-#MainMenu {
-    visibility: hidden;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ============================================================
-# 20. COMMON UI HELPERS
-# ============================================================
-
-def set_page(page_name):
-    st.session_state.page = page_name
-
-
-def page_title(title, subtitle=None):
-    st.title(title)
-
-    if subtitle:
-        st.caption(subtitle)
-
-
-def answer_actions(text, key_prefix="answer"):
-
-    col1, col2, col3 = st.columns([1, 1, 5])
-
-    with col1:
-        st.download_button(
-            "↓ Download",
-            data=text,
-            file_name="nextgen_answer.txt",
-            mime="text/plain",
-            key=f"{key_prefix}_download"
+        response = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": TAVILY_KEY,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 5
+            },
+            timeout=25
         )
 
-    with col2:
-        if st.button(
-            "Copy answer",
-            key=f"{key_prefix}_copy"
-        ):
-            st.code(text)
+        response.raise_for_status()
 
+        results = response.json().get("results", [])
 
-def save_and_show_answer(title, category, content):
+        return "\n".join(
+            f"- {item['title']}: {item['content']} "
+            f"({item['url']})"
+            for item in results
+        )
 
-    st.markdown(content)
-
-    answer_actions(
-        content,
-        key_prefix=str(uuid.uuid4())[:8]
-    )
-
-    if st.button(
-        "＋ Save to My Creations",
-        key="save_" + str(uuid.uuid4())[:8]
-    ):
-        if save_creation(title, category, content):
-            st.success("Saved to My Creations.")
-
+    except Exception:
+        return ""
 
 # ============================================================
-# 21. AUTHENTICATION GATE
+# FILE EXTRACTION
 # ============================================================
 
-if not st.session_state.authenticated:
-    authentication_screen()
-    st.stop()
+def extract_file_text(uploaded_file):
 
+    name = uploaded_file.name.lower()
+
+    try:
+
+        if name.endswith(".txt"):
+            return uploaded_file.getvalue().decode(
+                "utf-8", errors="replace"
+            )
+
+        if name.endswith(".pdf"):
+            import pypdf
+
+            reader = pypdf.PdfReader(uploaded_file)
+
+            return "\n".join(
+                page.extract_text() or ""
+                for page in reader.pages
+            )
+
+        if name.endswith(".docx"):
+            from docx import Document
+
+            document = Document(uploaded_file)
+
+            return "\n".join(
+                paragraph.text
+                for paragraph in document.paragraphs
+            )
+
+    except Exception as exc:
+        return f"File extraction error: {exc}"
+
+    return ""
 
 # ============================================================
-# 22. SIDEBAR
+# RESPONSE ACTIONS
 # ============================================================
 
-PAGES = [
-    ("⌂", "Dashboard"),
-    ("✦", "AI Chat"),
-    ("▥", "Stock Market"),
-    ("▧", "Image Studio"),
-    ("⚒", "Tool Center"),
-    ("⌘", "App Builder"),
-    ("◇", "Website Builder"),
-    ("▤", "Learn & Explore"),
-    ("▧", "PDF Assistant"),
-    ("▣", "My Creations"),
-    ("⚙", "Settings"),
-    ("ⓘ", "About")
-]
+def response_actions(content, index):
+
+    safe_content = json.dumps(content)
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    with c1:
+        st.button(
+            "📋",
+            key=f"copy_{index}",
+            help="Copy response",
+            on_click=lambda: st.session_state.update(
+                copy_text=content
+            )
+        )
+
+    with c2:
+        st.button(
+            "🔊",
+            key=f"read_{index}",
+            help="Read aloud",
+            on_click=lambda: st.session_state.update(
+                read_text=content
+            )
+        )
+
+    with c3:
+        st.button(
+            "👍",
+            key=f"like_{index}",
+            help="Like",
+            on_click=lambda: st.session_state.liked.update(
+                {index: "like"}
+            )
+        )
+
+    with c4:
+        st.button(
+            "👎",
+            key=f"dislike_{index}",
+            help="Dislike",
+            on_click=lambda: st.session_state.liked.update(
+                {index: "dislike"}
+            )
+        )
+
+    with c5:
+        st.button(
+            "↻",
+            key=f"regen_{index}",
+            help="Regenerate",
+            on_click=lambda: st.session_state.update(
+                pending_prompt=st.session_state.last_prompt
+            )
+        )
+
+    if st.session_state.liked.get(index) == "like":
+        st.caption("Thanks for your feedback!")
+
+    elif st.session_state.liked.get(index) == "dislike":
+        st.caption("Feedback received.")
+
+    if st.session_state.get("copy_text") == content:
+        st.code(content, language=None)
+
+    if st.session_state.get("read_text") == content:
+
+        components.html(
+            f"""
+            <script>
+            const text = {safe_content};
+            if (window.parent.speechSynthesis) {{
+                window.parent.speechSynthesis.cancel();
+                let utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = "hi-IN";
+                window.parent.speechSynthesis.speak(utterance);
+            }}
+            </script>
+            """,
+            height=0
+        )
+
+        st.session_state.read_text = None
+
+# ============================================================
+# SIDEBAR
+# ============================================================
 
 with st.sidebar:
 
-    st.markdown("## ✦ NEXTGEN AI")
-    st.caption("Your intelligent workspace")
+    st.markdown("""
+    <div style="padding:10px 5px;">
+        <div style="font-size:13px;color:#a997ff;
+        letter-spacing:3px;font-weight:800;">
+        INTELLIGENT WORKSPACE
+        </div>
+        <div style="font-size:25px;font-weight:800;
+        margin-top:8px;color:white;">
+        ✦ NEXTGEN AI
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.divider()
 
-    st.markdown(
-        f"**Welcome, {escape(st.session_state.user_name)}**"
-    )
+    st.markdown("### Workspace")
 
-    if st.session_state.guest_mode:
-        st.caption("Guest session")
-    else:
-        st.caption(st.session_state.user_email)
+    pages = {
+        "Dashboard": "⌂",
+        "AI Chat": "✦",
+        "Stock Market": "▥",
+        "Image Studio": "▧",
+        "Tool Center": "⚒",
+        "App Builder": "⌘",
+        "Website Builder": "◇",
+        "Learn & Explore": "▤",
+        "PDF Assistant": "▧"
+    }
 
-    st.divider()
-
-    for symbol, page_name in PAGES:
-
-        is_current = (
-            st.session_state.page == page_name
-        )
+    for page, icon in pages.items():
 
         if st.button(
-            f"{symbol}  {page_name}",
-            key="nav_" + page_name,
-            use_container_width=True,
-            type="primary" if is_current else "secondary"
+            f"{icon}  {page}",
+            key=f"nav_{page}",
+            use_container_width=True
         ):
-            set_page(page_name)
+            st.session_state.page = page
             st.rerun()
 
     st.divider()
 
-    st.caption("AI CHAT PROVIDERS")
+    st.markdown("### Chat History")
 
-    st.write(
-        "OpenAI  " +
-        ("● Connected" if OPENAI_KEY else "○ Not configured")
-    )
+    if st.button(
+        "＋ New Chat",
+        use_container_width=True
+    ):
+        st.session_state.chat_id = create_chat()
+        st.session_state.messages = []
+        st.session_state.page = "AI Chat"
+        st.rerun()
 
-    st.write(
-        "Gemini  " +
-        ("● Connected" if GEMINI_KEY else "○ Not configured")
-    )
+    for chat_id, title in get_chats()[:30]:
 
-    st.write(
-        "Groq  " +
-        ("● Connected" if GROQ_KEY else "○ Not configured")
-    )
+        if st.button(
+            f"◦ {title}",
+            key=f"history_{chat_id}",
+            use_container_width=True
+        ):
+            st.session_state.chat_id = chat_id
+            st.session_state.messages = get_messages(chat_id)
+            st.session_state.page = "AI Chat"
+            st.rerun()
 
     st.divider()
 
-    if st.button(
-        "↪ Logout",
-        use_container_width=True
-    ):
-        logout()
+    st.markdown("""
+    **Account**
 
+    Guest
+
+    <span style="color:#929bb1;font-size:12px;">
+    NEXTGEN AI MAX
+    </span>
+    """, unsafe_allow_html=True)
 
 # ============================================================
-# 23. DASHBOARD
+# DASHBOARD
 # ============================================================
 
 page = st.session_state.page
 
 if page == "Dashboard":
 
-    st.markdown(
-        """
-        <div style="
-            padding:34px 28px;
-            border-radius:20px;
-            border:1px solid rgba(255,255,255,.10);
-            background:linear-gradient(
-                120deg,
-                rgba(36,48,82,.95),
-                rgba(33,31,68,.95)
-            );
-        ">
-            <div style="
-                font-size:13px;
-                letter-spacing:3px;
-                color:#b8c4e8;
-            ">INTELLIGENT WORKSPACE</div>
-
-            <div style="
-                font-size:42px;
-                font-weight:800;
-                color:white;
-                margin-top:12px;
-            ">NEXTGEN AI</div>
-
-            <div style="
-                font-size:16px;
-                color:#e0e5f2;
-                margin-top:10px;
-            ">
-                Think clearly. Create freely. Learn continuously.
-            </div>
+    st.markdown("""
+    <div class="hero">
+        <div class="eyebrow">INTELLIGENT WORKSPACE</div>
+        <div class="brand">NEXTGEN AI</div>
+        <div class="tagline">
+        Think clearly. Create freely. Learn continuously.
         </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.write("")
+    </div>
+    """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
 
-    c1.metric("Workspace", "40,000+")
-    c2.metric("AI Assistants", "3")
-    c3.metric(
-        "Account",
-        "Guest" if st.session_state.guest_mode else "Registered"
-    )
+    with c1:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-value">40,000+</div>
+            <div class="stat-label">WORKSPACE</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.subheader("Your workspace")
+    with c2:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-value">MAX</div>
+            <div class="stat-label">AI ASSISTANTS</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    dashboard_cards = [
-        ("✦ AI Chat", "Ask questions, write, learn and solve problems."),
-        ("▥ Stock Market", "Explore market data and understand price movements."),
-        ("▧ Image Studio", "Create images and review your generated work."),
-        ("⚒ Tool Center", "Useful tools for everyday tasks."),
-        ("⌘ App Builder", "Generate starter code for app ideas."),
-        ("◇ Website Builder", "Create website layouts and starter files."),
-        ("▤ Learn & Explore", "Learn technology and new subjects."),
-        ("▧ PDF Assistant", "Work with supported PDF documents.")
-    ]
+    with c3:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-value">Guest</div>
+            <div class="stat-label">ACCOUNT</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    for start in range(0, len(dashboard_cards), 2):
+    st.markdown("## Your workspace")
+
+    descriptions = {
+        "AI Chat": (
+            "✦",
+            "Ask questions, write, learn and solve problems."
+        ),
+        "Stock Market": (
+            "▥",
+            "Explore market data and understand price movements."
+        ),
+        "Image Studio": (
+            "▧",
+            "Create images and review your generated work."
+        ),
+        "Tool Center": (
+            "⚒",
+            "Useful tools for everyday tasks."
+        ),
+        "App Builder": (
+            "⌘",
+            "Generate starter code for app ideas."
+        ),
+        "Website Builder": (
+            "◇",
+            "Create website layouts and starter files."
+        ),
+        "Learn & Explore": (
+            "▤",
+            "Learn technology and new subjects."
+        ),
+        "PDF Assistant": (
+            "▧",
+            "Work with supported PDF documents."
+        )
+    }
+
+    items = list(descriptions.items())
+
+    for start in range(0, len(items), 2):
 
         cols = st.columns(2)
 
-        for index, col in enumerate(cols):
-            card_index = start + index
+        for col, (name, details) in zip(
+            cols, items[start:start + 2]
+        ):
 
-            if card_index >= len(dashboard_cards):
-                continue
-
-            title, description = dashboard_cards[card_index]
+            icon, description = details
 
             with col:
-                with st.container(border=True):
-                    st.markdown(f"### {title}")
-                    st.write(description)
 
-                    destination = title.split(" ", 1)[1]
+                st.markdown(
+                    f"""
+                    <div class="feature-card">
+                        <div class="feature-icon">{icon}</div>
+                        <div class="feature-title">{name}</div>
+                        <div class="feature-desc">
+                        {description}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-                    if st.button(
-                        "Open",
-                        key="dashboard_" + destination,
-                        use_container_width=True
-                    ):
-                        set_page(destination)
-                        st.rerun()
-
+                if st.button(
+                    f"Open {name} →",
+                    key=f"open_{name}",
+                    use_container_width=True
+                ):
+                    st.session_state.page = name
+                    st.rerun()
 
 # ============================================================
-# 24. AI CHAT
+# AI CHAT
 # ============================================================
 
 elif page == "AI Chat":
 
-    page_title(
-        "✦ AI Chat",
-        "Ask questions, explore ideas and work with your AI assistant."
+    st.title("✦ AI Chat")
+    st.caption(
+        "Ask anything. Your intelligent assistant is ready."
     )
 
-    chats = get_user_chats()
+    # Display previous messages
 
-    top1, top2, top3 = st.columns([1, 1, 3])
-
-    with top1:
-        if st.button("＋ New Chat", use_container_width=True):
-            create_new_chat()
-            st.rerun()
-
-    with top2:
-        if st.button("Clear Chat", use_container_width=True):
-            delete_current_chat()
-            st.rerun()
-
-    with top3:
-        st.toggle(
-            "Smart Web Search",
-            key="web_search_enabled"
-        )
-
-    if chats:
-
-        selected_chat = st.selectbox(
-            "Chat history",
-            options=[item["id"] for item in chats],
-            format_func=lambda chat_id: next(
-                (
-                    item["title"]
-                    for item in chats
-                    if item["id"] == chat_id
-                ),
-                "Chat"
-            ),
-            index=next(
-                (
-                    index
-                    for index, item in enumerate(chats)
-                    if item["id"] == st.session_state.chat_id
-                ),
-                0
-            )
-        )
-
-        if selected_chat != st.session_state.chat_id:
-            st.session_state.chat_id = selected_chat
-            st.session_state.messages = get_messages(
-                selected_chat
-            )
-            st.rerun()
-
-    if not st.session_state.chat_id:
-        create_new_chat()
-
-    if not st.session_state.messages:
-        st.session_state.messages = get_messages(
-            st.session_state.chat_id
-        )
-
-    for index, message in enumerate(
+    for i, message in enumerate(
         st.session_state.messages
     ):
 
         with st.chat_message(message["role"]):
+
             st.markdown(message["content"])
 
             if message["role"] == "assistant":
-                answer_actions(
-                    message["content"],
-                    key_prefix=f"chat_answer_{index}"
+                response_actions(
+                    message["content"], i
                 )
 
-    prompt = st.chat_input(
-        "Message NEXTGEN AI..."
-    )
+    # Attachment support
 
-    if prompt:
+    with st.expander("＋ Attach files and images"):
 
-        current_chat = st.session_state.chat_id
-
-        user_message = {
-            "role": "user",
-            "content": prompt
-        }
-
-        st.session_state.messages.append(user_message)
-
-        save_message(
-            current_chat,
-            "user",
-            prompt
+        uploaded = st.file_uploader(
+            "Upload your files",
+            type=[
+                "png", "jpg", "jpeg",
+                "pdf", "txt", "docx"
+            ],
+            accept_multiple_files=True,
+            key="chat_upload"
         )
 
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        if uploaded:
+            st.session_state.uploaded_files = uploaded
+
+            for file in uploaded:
+                st.caption(f"📎 {file.name}")
+
+    # Voice input
+
+    audio = None
+
+    with st.expander("🎙 Voice input"):
+        audio = st.audio_input(
+            "Record your message",
+            key="chat_audio"
+        )
+
+        st.caption(
+            "Audio recording is available. "
+            "Transcription requires a configured speech service."
+        )
+
+    if st.session_state.pending_prompt:
+
+        prompt = st.session_state.pending_prompt
+        st.session_state.pending_prompt = None
+
+        st.session_state.last_prompt = prompt
+
+        context_messages = [
+            {"role": "system", "content":
+             "You are NEXTGEN AI, a helpful intelligent assistant. "
+             "Give accurate, clear and useful answers."}
+        ]
+
+        context_messages.extend(
+            st.session_state.messages[:-1]
+        )
+
+        context_messages.append({
+            "role": "user",
+            "content": prompt
+        })
 
         with st.chat_message("assistant"):
 
             with st.spinner("Thinking..."):
 
                 try:
-                    answer = smart_ai_answer(
-                        st.session_state.messages
-                    )
+                    answer = ask_ai(context_messages)
 
                     st.markdown(answer)
 
-                    assistant_message = {
+                    st.session_state.messages.append({
                         "role": "assistant",
                         "content": answer
-                    }
-
-                    st.session_state.messages.append(
-                        assistant_message
-                    )
+                    })
 
                     save_message(
-                        current_chat,
+                        st.session_state.chat_id,
                         "assistant",
                         answer
                     )
 
-                    st.caption(
-                        "Provider: "
-                        + st.session_state.last_provider
-                        + "  |  Search: "
-                        + st.session_state.last_search
+                    response_actions(
+                        answer,
+                        len(st.session_state.messages) - 1
                     )
 
                 except Exception as exc:
-                    st.error(str(exc))
+                    st.error(f"AI Error: {exc}")
 
+        st.rerun()
+
+    prompt = st.chat_input(
+        "Message NEXTGEN AI...",
+        accept_file=True,
+        file_type=[
+            "png", "jpg", "jpeg",
+            "pdf", "txt", "docx"
+        ]
+    )
+
+    if prompt:
+
+        if hasattr(prompt, "text"):
+            user_prompt = prompt.text or ""
+            attached = prompt.files or []
+        else:
+            user_prompt = str(prompt)
+            attached = []
+
+        file_context = []
+
+        for file in (
+            list(attached)
+            + list(st.session_state.uploaded_files)
+        ):
+
+            extracted = extract_file_text(file)
+
+            if extracted:
+                file_context.append(
+                    f"\nFILE: {file.name}\n{extracted[:12000]}"
+                )
+
+        if file_context:
+            user_prompt += (
+                "\n\nUploaded file content:\n"
+                + "\n".join(file_context)
+            )
+
+        if not user_prompt.strip():
+            st.warning("Please enter a message.")
+            st.stop()
+
+        st.session_state.last_prompt = user_prompt
+
+        st.session_state.messages.append({
+            "role": "user",
+            "content": user_prompt
+        })
+
+        save_message(
+            st.session_state.chat_id,
+            "user",
+            user_prompt
+        )
+
+        if len(st.session_state.messages) == 1:
+            update_chat_title(
+                st.session_state.chat_id,
+                user_prompt[:40]
+            )
+
+        web_context = ""
+
+        if needs_web_search(user_prompt):
+            web_context = smart_web_search(user_prompt)
+
+        context_messages = [
+            {
+                "role": "system",
+                "content":
+                "You are NEXTGEN AI. "
+                "Be helpful, accurate and clear. "
+                "If web search context is supplied, "
+                "use it carefully and distinguish facts "
+                "from uncertainty.\n"
+                + (
+                    "WEB SEARCH CONTEXT:\n" + web_context
+                    if web_context else ""
+                )
+            }
+        ]
+
+        context_messages.extend(
+            st.session_state.messages[-21:]
+        )
+
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+
+        with st.chat_message("assistant"):
+
+            with st.spinner("Thinking..."):
+
+                try:
+
+                    answer = ask_ai(context_messages)
+
+                    st.markdown(answer)
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": answer
+                    })
+
+                    save_message(
+                        st.session_state.chat_id,
+                        "assistant",
+                        answer
+                    )
+
+                    response_actions(
+                        answer,
+                        len(st.session_state.messages) - 1
+                    )
+
+                except Exception as exc:
+                    st.error(f"AI Error: {exc}")
+
+        st.rerun()
 
 # ============================================================
-# 25. STOCK MARKET
+# STOCK MARKET
 # ============================================================
 
 elif page == "Stock Market":
 
-    page_title(
-        "▥ Stock Market",
-        "Market information powered by your Finnhub API key."
-    )
-
-    if not FINNHUB_KEY:
-        st.error(
-            "FINNHUB_API_KEY is missing. "
-            "Add it to Streamlit Secrets."
-        )
-        st.stop()
-
-    st.caption(
-        "Market data availability depends on your Finnhub plan "
-        "and the exchange's data permissions."
-    )
+    st.title("▥ Stock Market")
+    st.caption("Market insights and AI-powered analysis")
 
     symbol = st.text_input(
-        "Stock symbol",
-        value=st.session_state.stock_symbol,
-        placeholder="Example: AAPL"
-    ).strip().upper()
+        "Enter stock symbol",
+        value="AAPL"
+    ).upper().strip()
 
     period = st.selectbox(
-        "Historical chart period",
-        ["7 days", "30 days", "90 days", "180 days", "365 days"],
-        index=1
+        "Chart period",
+        ["1mo", "3mo", "6mo", "1y", "2y"]
     )
 
-    period_days = {
-        "7 days": 7,
-        "30 days": 30,
-        "90 days": 90,
-        "180 days": 180,
-        "365 days": 365
-    }[period]
+    if st.button("Load Stock Chart"):
 
-    if st.button(
-        "Analyze Stock",
-        use_container_width=True
-    ):
+        try:
+            import yfinance as yf
 
-        if not re.match(r"^[A-Z0-9.\-]{1,20}$", symbol):
-            st.error("Enter a valid stock symbol.")
-        else:
+            stock = yf.Ticker(symbol)
+            history = stock.history(period=period)
+
+            if history.empty:
+                st.warning("No market data found.")
+            else:
+                st.line_chart(
+                    history["Close"],
+                    height=350
+                )
+
+                st.metric(
+                    "Latest Close",
+                    f"{history['Close'].iloc[-1]:.2f}"
+                )
+
+                st.session_state.stock_data = {
+                    "symbol": symbol,
+                    "history": history
+                }
+
+        except Exception as exc:
+            st.error(f"Market data error: {exc}")
+
+    if st.button("✦ Analyze with AI"):
+
+        data = st.session_state.get("stock_data")
+
+        if data:
+
+            history = data["history"]
+
+            information = (
+                f"Stock: {data['symbol']}\n"
+                f"Recent closing prices:\n"
+                f"{history['Close'].tail(10).to_string()}"
+            )
+
             try:
-                with st.spinner("Loading Finnhub market data..."):
+                analysis = ask_ai([
+                    {
+                        "role": "system",
+                        "content":
+                        "You are an educational financial analysis assistant. "
+                        "Explain trends, risks and uncertainty. "
+                        "Never promise returns."
+                    },
+                    {
+                        "role": "user",
+                        "content":
+                        "Analyze this stock data:\n" + information
+                    }
+                ])
 
-                    quote = finnhub_quote(symbol)
-                    history = finnhub_candles(
-                        symbol,
-                        period_days
-                    )
-
-                    st.session_state.stock_symbol = symbol
-                    st.session_state.stock_data = quote
-                    st.session_state.stock_history = history
+                st.markdown("### AI Analysis")
+                st.markdown(analysis)
 
             except Exception as exc:
                 st.error(str(exc))
 
-    quote = st.session_state.stock_data
-    history = st.session_state.stock_history
+        else:
+            st.warning("Load a stock chart first.")
 
-    if quote and history:
-
-        summary = calculate_stock_summary(quote)
-
-        st.divider()
-        st.subheader(f"{st.session_state.stock_symbol} — Market Overview")
-
-        m1, m2, m3, m4 = st.columns(4)
-
-        m1.metric(
-            "Current Price",
-            f"{summary['current']:,.2f}"
-        )
-
-        m2.metric(
-            "Previous Close",
-            f"{summary['previous']:,.2f}"
-        )
-
-        m3.metric(
-            "Change",
-            f"{summary['change']:+,.2f}"
-        )
-
-        m4.metric(
-            "Change %",
-            f"{summary['percent']:+.2f}%"
-        )
-
-        st.subheader("Historical Price Chart")
-
-        chart_data = {
-            "Close": history["c"],
-            "Open": history["o"],
-            "High": history["h"],
-            "Low": history["l"]
-        }
-
-        st.line_chart(
-            chart_data,
-            height=350
-        )
-
-        st.subheader("Chart Analysis")
-
-        close_prices = history["c"]
-
-        if len(close_prices) >= 2:
-
-            first_price = close_prices[0]
-            last_price = close_prices[-1]
-
-            if first_price:
-                total_change = (
-                    (last_price - first_price)
-                    / first_price
-                ) * 100
-            else:
-                total_change = 0
-
-            st.write(
-                f"Change across selected chart period: "
-                f"{total_change:+.2f}%"
-            )
-
-            if len(close_prices) >= 20:
-                moving_average = (
-                    sum(close_prices[-20:]) / 20
-                )
-
-                st.write(
-                    f"20-session simple average: "
-                    f"{moving_average:.2f}"
-                )
-
-                if last_price > moving_average:
-                    st.info(
-                        "The latest close is above the "
-                        "20-session average."
-                    )
-                else:
-                    st.info(
-                        "The latest close is below the "
-                        "20-session average."
-                    )
-
-        st.caption(
-            "These are descriptive indicators, not a prediction "
-            "or a recommendation to buy or sell."
-        )
-
-        st.divider()
-
-        st.subheader("Learn Stock Market")
-
-        lesson = st.selectbox(
-            "Choose a lesson",
-            [
-                "Stock Market Basics",
-                "Candlestick Charts",
-                "Support and Resistance",
-                "Moving Averages",
-                "Risk and Diversification",
-                "Volume and Volatility"
-            ]
-        )
-
-        lessons = {
-            "Stock Market Basics":
-                "A stock represents a share in a company. "
-                "Prices can rise or fall based on many factors.",
-
-            "Candlestick Charts":
-                "Candles show open, high, low and close prices "
-                "for a selected time period.",
-
-            "Support and Resistance":
-                "Support and resistance are commonly studied "
-                "price areas. They are not guaranteed turning points.",
-
-            "Moving Averages":
-                "A moving average smooths historical prices "
-                "to help study broad trends.",
-
-            "Risk and Diversification":
-                "Diversification spreads exposure across different "
-                "assets. It does not eliminate risk.",
-
-            "Volume and Volatility":
-                "Volume measures trading activity. Volatility "
-                "describes how much prices fluctuate."
-        }
-
-        st.write(lessons[lesson])
-
-    else:
-        st.info(
-            "Enter a stock symbol and select Analyze Stock "
-            "to load Finnhub data."
-        )
-
-    st.warning(
-        "Educational use only. This section does not provide "
-        "personalized investment or trading advice."
+    st.info(
+        "Stock information is educational, not investment advice."
     )
 
-
 # ============================================================
-# 26. IMAGE STUDIO
+# IMAGE STUDIO
 # ============================================================
 
 elif page == "Image Studio":
 
-    page_title(
-        "▧ Image Studio",
-        "Create images with Cloudflare and manage your image gallery."
+    st.title("▧ Image Studio")
+
+    st.write(
+        "Create, upload and review your images."
     )
 
-    st.subheader("Create an image")
-
-    prompt = st.text_area(
-        "Describe the image you want",
-        placeholder=(
-            "Example: A cinematic futuristic city at sunset, "
-            "detailed architecture, atmospheric lighting..."
-        ),
-        height=120
+    image_prompt = st.text_area(
+        "Describe your image",
+        placeholder="Describe the image you want..."
     )
 
-    style = st.selectbox(
-        "Image style",
-        [
-            "Realistic",
-            "Cinematic",
-            "Digital Art",
-            "Anime",
-            "3D Render",
-            "Fantasy",
-            "Minimal",
-            "Watercolor",
-            "Portrait",
-            "Architecture"
-        ]
+    st.file_uploader(
+        "＋ Upload reference image",
+        type=["png", "jpg", "jpeg"]
     )
 
-    extra_detail = st.text_input(
-        "Additional details (optional)"
+    st.info(
+        "Image generation requires a configured image-generation provider."
     )
 
-    final_prompt = (
-        prompt.strip()
-        + f". Style: {style}."
-        + (
-            f" Additional details: {extra_detail}"
-            if extra_detail.strip()
-            else ""
+    if st.button("Generate Image"):
+        st.warning(
+            "Connect an image-generation service to enable generation."
         )
-    )
-
-    if st.button(
-        "✦ Generate Image",
-        use_container_width=True
-    ):
-
-        if not prompt.strip():
-            st.warning("Please enter an image prompt.")
-
-        else:
-            try:
-                with st.spinner(
-                    "Creating your image with Cloudflare..."
-                ):
-
-                    image_bytes = generate_cloudflare_image(
-                        final_prompt
-                    )
-
-                    st.session_state.generated_image = image_bytes
-                    st.session_state.generated_image_prompt = final_prompt
-                    st.session_state.image_rating = None
-
-            except Exception as exc:
-                st.error(str(exc))
-
-    if st.session_state.generated_image:
-
-        st.divider()
-        st.subheader("Generated Image")
-
-        st.image(
-            st.session_state.generated_image,
-            use_container_width=True
-        )
-
-        st.download_button(
-            "↓ Download Image",
-            data=st.session_state.generated_image,
-            file_name="nextgen_image.png",
-            mime="image/png",
-            use_container_width=True
-        )
-
-        st.write("**Review this image**")
-
-        rating = st.select_slider(
-            "Your rating",
-            options=[
-                "Not good",
-                "Needs improvement",
-                "Good",
-                "Very good",
-                "Excellent"
-            ],
-            value="Good"
-        )
-
-        if st.button("Submit Review"):
-            st.session_state.image_rating = rating
-            st.success("Thank you for your review.")
-
-        if st.button("＋ Save Image Prompt"):
-            save_creation(
-                "Generated Image Prompt",
-                "Image Studio",
-                st.session_state.generated_image_prompt
-            )
-            st.success("Prompt saved.")
-
-    st.divider()
-
-    st.subheader("＋ Add images from your device")
-
-    uploaded_images = st.file_uploader(
-        "Choose images from your gallery",
-        type=["png", "jpg", "jpeg", "webp"],
-        accept_multiple_files=True
-    )
-
-    if uploaded_images:
-
-        st.write(
-            f"{len(uploaded_images)} image(s) selected."
-        )
-
-        cols = st.columns(3)
-
-        for index, uploaded in enumerate(uploaded_images):
-            with cols[index % 3]:
-                st.image(
-                    uploaded,
-                    caption=uploaded.name,
-                    use_container_width=True
-                )
-
-                st.download_button(
-                    "Download",
-                    data=uploaded.getvalue(),
-                    file_name=uploaded.name,
-                    key=f"gallery_download_{index}"
-                )
-
 
 # ============================================================
-# 27. TOOL CENTER
+# TOOL CENTER
 # ============================================================
 
 elif page == "Tool Center":
 
-    page_title(
-        "⚒ Tool Center",
-        "Simple tools for everyday work."
-    )
+    st.title("⚒ Tool Center")
 
     tool = st.selectbox(
         "Select a tool",
         [
             "Word Counter",
             "Text Case Converter",
-            "Percentage Calculator",
-            "Simple Calculator",
-            "JSON Formatter",
-            "Character Counter"
+            "Calculator",
+            "Text Summarizer"
         ]
     )
 
     if tool == "Word Counter":
 
-        text_value = st.text_area(
-            "Enter text",
-            height=180
-        )
+        text_input = st.text_area("Enter text")
 
-        words = len(text_value.split())
-        characters = len(text_value)
-        characters_no_spaces = len(
-            text_value.replace(" ", "")
-        )
-
-        a, b, c = st.columns(3)
-
-        a.metric("Words", words)
-        b.metric("Characters", characters)
-        c.metric("Without spaces", characters_no_spaces)
+        if text_input:
+            st.metric(
+                "Words",
+                len(text_input.split())
+            )
+            st.metric(
+                "Characters",
+                len(text_input)
+            )
 
     elif tool == "Text Case Converter":
 
-        text_value = st.text_area("Enter text")
+        text_input = st.text_area("Enter text")
 
-        if st.button("UPPERCASE"):
-            st.code(text_value.upper())
+        if text_input:
+            st.code(text_input.upper())
 
-        if st.button("lowercase"):
-            st.code(text_value.lower())
+    elif tool == "Calculator":
 
-        if st.button("Title Case"):
-            st.code(text_value.title())
-
-        if st.button("Sentence Case"):
-            st.code(text_value.capitalize())
-
-    elif tool == "Percentage Calculator":
-
-        number = st.number_input(
-            "Enter number",
-            value=100.0
-        )
-
-        percentage = st.number_input(
-            "Percentage",
-            value=10.0
+        expression = st.text_input(
+            "Enter arithmetic expression"
         )
 
         if st.button("Calculate"):
-            st.success(
-                f"Result: {number * percentage / 100:.4f}"
-            )
-
-    elif tool == "Simple Calculator":
-
-        first = st.number_input(
-            "First number",
-            value=0.0,
-            key="calc_first"
-        )
-
-        operation = st.selectbox(
-            "Operation",
-            ["+", "-", "×", "÷"]
-        )
-
-        second = st.number_input(
-            "Second number",
-            value=0.0,
-            key="calc_second"
-        )
-
-        if st.button("Calculate result"):
-
-            if operation == "+":
-                result = first + second
-
-            elif operation == "-":
-                result = first - second
-
-            elif operation == "×":
-                result = first * second
-
-            else:
-                result = (
-                    first / second
-                    if second != 0
-                    else None
-                )
-
-            if result is None:
-                st.error("Cannot divide by zero.")
-            else:
-                st.success(f"Result: {result}")
-
-    elif tool == "JSON Formatter":
-
-        raw_json = st.text_area(
-            "Paste JSON",
-            height=180
-        )
-
-        if st.button("Format JSON"):
 
             try:
-                parsed = json.loads(raw_json)
-                st.code(
-                    json.dumps(
-                        parsed,
-                        indent=4,
-                        ensure_ascii=False
-                    ),
-                    language="json"
+                import ast
+                import operator
+
+                operations = {
+                    ast.Add: operator.add,
+                    ast.Sub: operator.sub,
+                    ast.Mult: operator.mul,
+                    ast.Div: operator.truediv,
+                    ast.Pow: operator.pow,
+                    ast.USub: operator.neg,
+                    ast.UAdd: operator.pos
+                }
+
+                def calculate(node):
+
+                    if isinstance(node, ast.Expression):
+                        return calculate(node.body)
+
+                    if isinstance(node, ast.Constant):
+                        if type(node.value) in (int, float):
+                            return node.value
+
+                    if isinstance(node, ast.UnaryOp):
+                        op = operations.get(type(node.op))
+                        if op:
+                            return op(calculate(node.operand))
+
+                    if isinstance(node, ast.BinOp):
+                        op = operations.get(type(node.op))
+                        if op:
+                            return op(
+                                calculate(node.left),
+                                calculate(node.right)
+                            )
+
+                    raise ValueError("Unsupported expression")
+
+                result = calculate(
+                    ast.parse(expression, mode="eval")
                 )
 
-            except json.JSONDecodeError as exc:
-                st.error(f"Invalid JSON: {exc}")
+                st.success(str(result))
 
-    elif tool == "Character Counter":
+            except Exception:
+                st.error("Invalid calculation.")
 
-        text_value = st.text_area("Enter text")
+    elif tool == "Text Summarizer":
 
-        st.metric(
-            "Characters",
-            len(text_value)
-        )
+        content = st.text_area("Enter text to summarize")
 
+        if st.button("Summarize"):
+
+            if content:
+
+                try:
+                    result = ask_ai([
+                        {
+                            "role": "user",
+                            "content":
+                            "Summarize this text:\n" + content
+                        }
+                    ])
+
+                    st.markdown(result)
+
+                except Exception as exc:
+                    st.error(str(exc))
 
 # ============================================================
-# 28. APP BUILDER
+# APP BUILDER
 # ============================================================
 
 elif page == "App Builder":
 
-    page_title(
-        "⌘ App Builder",
-        "Turn an idea into a starter application."
-    )
+    st.title("⌘ App Builder")
 
-    app_name = st.text_input(
-        "Application name",
-        value="My Next App"
-    )
-
-    app_description = st.text_area(
+    description = st.text_area(
         "Describe your application",
-        placeholder=(
-            "Explain what the app should do, "
-            "who will use it and its main features."
-        ),
-        height=140
+        placeholder="Build a modern AI application..."
     )
 
-    app_platform = st.selectbox(
-        "Platform",
-        [
-            "Python Streamlit",
-            "HTML CSS JavaScript",
-            "React Starter",
-            "Python Desktop Starter"
-        ]
+    language = st.selectbox(
+        "Programming language",
+        ["Python", "JavaScript", "HTML/CSS", "React"]
     )
 
-    if st.button(
-        "Generate App Starter",
-        use_container_width=True
-    ):
+    if st.button("Generate App Code"):
 
-        if not app_description.strip():
-            st.warning("Describe your app idea first.")
+        try:
 
-        else:
-
-            request_messages = [
+            result = ask_ai([
+                {
+                    "role": "system",
+                    "content":
+                    "You are an expert software developer. "
+                    "Generate complete, organized code."
+                },
                 {
                     "role": "user",
-                    "content": f"""
-Create a practical starter project.
-
-Application name: {app_name}
-Platform: {app_platform}
-Description: {app_description}
-
-Return:
-1. Project overview.
-2. Folder structure.
-3. Main starter code.
-4. Setup instructions.
-5. Important limitations.
-
-Do not claim the project has been tested.
-"""
+                    "content":
+                    f"Build this application using {language}:\n"
+                    + description
                 }
-            ]
+            ])
 
-            try:
-                with st.spinner("Building your starter project..."):
-                    result = ask_ai(request_messages)
+            st.markdown(result)
 
-                st.session_state.generated_project = result
-
-                save_creation(
-                    app_name,
-                    "App Builder",
-                    result
-                )
-
-            except Exception as exc:
-                st.error(str(exc))
-
-    if st.session_state.generated_project:
-
-        st.subheader("Generated App Plan")
-
-        st.markdown(
-            st.session_state.generated_project
-        )
-
-        st.download_button(
-            "↓ Download project notes",
-            data=st.session_state.generated_project,
-            file_name="app_project_notes.md",
-            mime="text/markdown"
-        )
-
+        except Exception as exc:
+            st.error(str(exc))
 
 # ============================================================
-# 29. WEBSITE BUILDER
+# WEBSITE BUILDER
 # ============================================================
 
 elif page == "Website Builder":
 
-    page_title(
-        "◇ Website Builder",
-        "Generate a website starter with AI."
+    st.title("◇ Website Builder")
+
+    website_description = st.text_area(
+        "Describe your website"
     )
 
-    website_name = st.text_input(
-        "Website name",
-        value="My Website"
-    )
-
-    website_type = st.selectbox(
-        "Website type",
+    style = st.selectbox(
+        "Website style",
         [
-            "Portfolio",
-            "Business Website",
-            "Landing Page",
-            "Blog",
-            "Educational Website",
-            "Online Store Layout"
+            "Premium Dark",
+            "Modern Light",
+            "Minimal",
+            "Business",
+            "Portfolio"
         ]
     )
 
-    website_description = st.text_area(
-        "Describe your website",
-        height=130
-    )
+    if st.button("Generate Website"):
 
-    if st.button(
-        "Generate Website",
-        use_container_width=True
-    ):
+        try:
 
-        if not website_description.strip():
-            st.warning("Enter a website description.")
-
-        else:
-
-            request_messages = [
+            result = ask_ai([
+                {
+                    "role": "system",
+                    "content":
+                    "You are an expert frontend developer. "
+                    "Generate a complete responsive website."
+                },
                 {
                     "role": "user",
-                    "content": f"""
-Create a complete responsive starter website.
-
-Name: {website_name}
-Type: {website_type}
-Description: {website_description}
-
-Return:
-- HTML
-- CSS
-- JavaScript if needed
-- File names
-- Setup instructions
-
-Keep code in clearly labeled code blocks.
-"""
+                    "content":
+                    f"Create a {style} website:\n"
+                    + website_description
                 }
-            ]
+            ])
 
-            try:
-                with st.spinner("Creating website starter..."):
-                    result = ask_ai(request_messages)
+            st.code(result, language="html")
 
-                st.session_state.generated_website = result
-
-                save_creation(
-                    website_name,
-                    "Website Builder",
-                    result
-                )
-
-            except Exception as exc:
-                st.error(str(exc))
-
-    if st.session_state.generated_website:
-
-        st.subheader("Website Starter")
-
-        st.markdown(
-            st.session_state.generated_website
-        )
-
-        st.download_button(
-            "↓ Download website notes",
-            data=st.session_state.generated_website,
-            file_name="website_starter.md",
-            mime="text/markdown"
-        )
-
+        except Exception as exc:
+            st.error(str(exc))
 
 # ============================================================
-# 30. LEARN & EXPLORE
+# LEARN & EXPLORE
 # ============================================================
 
 elif page == "Learn & Explore":
 
-    page_title(
-        "▤ Learn & Explore",
-        "Learn concepts with clear explanations and examples."
-    )
+    st.title("▤ Learn & Explore")
 
-    topic = st.text_input(
-        "What would you like to learn?",
-        placeholder="Example: Python loops"
-    )
-
-    level = st.selectbox(
-        "Learning level",
+    subject = st.selectbox(
+        "Choose a subject",
         [
-            "Beginner",
-            "Intermediate",
-            "Advanced"
+            "Science",
+            "Mathematics",
+            "Computer Science",
+            "Artificial Intelligence",
+            "Technology",
+            "English",
+            "General Knowledge"
         ]
     )
 
-    if st.button(
-        "Start Learning",
-        use_container_width=True
-    ):
+    question = st.text_input(
+        "What do you want to learn?"
+    )
 
-        if not topic.strip():
-            st.warning("Enter a topic first.")
+    if st.button("Start Learning"):
 
-        else:
+        try:
 
-            messages = [
+            answer = ask_ai([
+                {
+                    "role": "system",
+                    "content":
+                    "You are an excellent teacher. "
+                    "Explain concepts step by step with examples."
+                },
                 {
                     "role": "user",
-                    "content": f"""
-Teach me about: {topic}
-Level: {level}
-
-Explain in a structured way:
-1. Simple definition.
-2. Detailed explanation.
-3. Examples.
-4. Common mistakes.
-5. Short revision notes.
-6. Five practice questions.
-"""
+                    "content":
+                    f"Teach me {subject}: {question}"
                 }
-            ]
+            ])
 
-            try:
-                with st.spinner("Preparing your lesson..."):
-                    answer = ask_ai(messages)
+            st.markdown(answer)
 
-                st.markdown(answer)
-
-                save_creation(
-                    topic,
-                    "Learning",
-                    answer
-                )
-
-            except Exception as exc:
-                st.error(str(exc))
-
+        except Exception as exc:
+            st.error(str(exc))
 
 # ============================================================
-# 31. PDF ASSISTANT
+# PDF ASSISTANT
 # ============================================================
 
 elif page == "PDF Assistant":
 
-    page_title(
-        "▧ PDF Assistant",
-        "Upload a PDF and ask questions about its text."
-    )
+    st.title("▧ PDF Assistant")
 
-    uploaded_pdf = st.file_uploader(
-        "Choose a PDF file",
+    pdf = st.file_uploader(
+        "Upload a PDF document",
         type=["pdf"]
     )
 
-    pdf_text = ""
-
-    if uploaded_pdf:
+    if pdf:
 
         try:
-            from pypdf import PdfReader
 
-            reader = PdfReader(uploaded_pdf)
+            import pypdf
 
-            pages = []
+            reader = pypdf.PdfReader(pdf)
 
-            for pdf_page in reader.pages:
-                pages.append(
-                    pdf_page.extract_text() or ""
-                )
-
-            pdf_text = "\n\n".join(pages)
+            pdf_text = "\n".join(
+                page.extract_text() or ""
+                for page in reader.pages
+            )
 
             st.success(
                 f"PDF loaded: {len(reader.pages)} pages"
             )
 
             st.text_area(
-                "Extracted text preview",
-                pdf_text[:5000],
+                "Extracted text",
+                pdf_text[:10000],
                 height=180
             )
 
-        except ImportError:
-            st.error(
-                "PDF reading requires the optional pypdf package. "
-                "You can still use the AI Chat with copied text."
+            question = st.text_input(
+                "Ask a question about this PDF"
             )
+
+            if st.button("Ask PDF Assistant"):
+
+                try:
+
+                    result = ask_ai([
+                        {
+                            "role": "system",
+                            "content":
+                            "Answer using the supplied PDF content. "
+                            "Say when information is not present."
+                        },
+                        {
+                            "role": "user",
+                            "content":
+                            f"PDF CONTENT:\n{pdf_text[:30000]}\n\n"
+                            f"QUESTION:\n{question}"
+                        }
+                    ])
+
+                    st.markdown(result)
+
+                except Exception as exc:
+                    st.error(str(exc))
 
         except Exception as exc:
-            st.error(f"Could not read PDF: {exc}")
-
-    question = st.text_input(
-        "Ask something about the PDF"
-    )
-
-    if st.button("Ask PDF Assistant"):
-
-        if not pdf_text:
-            st.warning("Upload a readable PDF first.")
-
-        elif not question.strip():
-            st.warning("Enter your question.")
-
-        else:
-
-            messages = [
-                {
-                    "role": "user",
-                    "content": (
-                        "Answer using the following PDF text. "
-                        "If the answer is not present, say so.\n\n"
-                        "PDF TEXT:\n"
-                        + pdf_text[:25000]
-                        + "\n\nQUESTION:\n"
-                        + question
-                    )
-                }
-            ]
-
-            try:
-                with st.spinner("Reading and answering..."):
-                    answer = ask_ai(messages)
-
-                st.markdown(answer)
-
-                save_creation(
-                    "PDF: " + question[:40],
-                    "PDF Assistant",
-                    answer
-                )
-
-            except Exception as exc:
-                st.error(str(exc))
-
+            st.error(f"PDF Error: {exc}")
 
 # ============================================================
-# 32. MY CREATIONS
+# FOOTER
 # ============================================================
 
-elif page == "My Creations":
-
-    page_title(
-        "▣ My Creations",
-        "Your saved AI outputs and project notes."
-    )
-
-    creations = get_creations()
-
-    if not creations:
-        st.info("Your saved creations will appear here.")
-
-    else:
-
-        for item in creations:
-
-            with st.expander(
-                f"{item['title']} — {item['category']}"
-            ):
-
-                st.caption(item["created_at"])
-                st.markdown(item["content"])
-
-                st.download_button(
-                    "Download",
-                    data=item["content"],
-                    file_name="creation.txt",
-                    key=f"creation_{item['id']}"
-                )
-
-
-# ============================================================
-# 33. SETTINGS
-# ============================================================
-
-elif page == "Settings":
-
-    page_title(
-        "⚙ Settings",
-        "Application preferences and connection status."
-    )
-
-    st.subheader("AI Providers")
-
-    provider_status = [
-        ("OpenAI", OPENAI_KEY, OPENAI_MODEL),
-        ("Gemini", GEMINI_KEY, GEMINI_MODEL),
-        ("Groq", GROQ_KEY, GROQ_MODEL)
-    ]
-
-    for provider, key, model in provider_status:
-
-        if key:
-            st.success(
-                f"{provider}: Configured — {model}"
-            )
-        else:
-            st.warning(
-                f"{provider}: API key not configured"
-            )
-
-    st.divider()
-
-    st.subheader("Image Generation")
-
-    if CF_API_TOKEN and CF_ACCOUNT_ID:
-        st.success(
-            "Cloudflare Image Generation: Configured"
-        )
-    else:
-        st.warning(
-            "Cloudflare credentials are not configured."
-        )
-
-    st.write("Image model:", CF_IMAGE_MODEL)
-
-    st.divider()
-
-    st.subheader("Stock Market")
-
-    if FINNHUB_KEY:
-        st.success("Finnhub API: Configured")
-    else:
-        st.warning("Finnhub API: Not configured")
-
-    st.divider()
-
-    st.subheader("Web Search")
-
-    if TAVILY_KEY:
-        st.success("Tavily Search: Configured")
-    else:
-        st.info(
-            "Tavily is optional. OpenAI Web Search may be used "
-            "when supported by your API access."
-        )
-
-    st.divider()
-
-    st.subheader("Current Session")
-
-    st.write(
-        "Account type:",
-        "Guest" if st.session_state.guest_mode else "Registered"
-    )
-
-    st.write(
-        "AI provider used:",
-        st.session_state.last_provider
-    )
-
-    st.write(
-        "Last search status:",
-        st.session_state.last_search
-    )
-
-    st.caption(
-        "API keys are not displayed in this settings page."
-    )
-
-
-# ============================================================
-# 34. ABOUT
-# ============================================================
-
-elif page == "About":
-
-    page_title(
-        "ⓘ About NEXTGEN AI",
-        "An AI-powered workspace for learning, creating and exploring."
-    )
-
-    st.markdown("""
-    ## NEXTGEN AI
-
-    NEXTGEN AI brings multiple useful tools into one workspace.
-
-    ### AI Chat
-    - OpenAI
-    - Gemini
-    - Groq
-    - Smart web search when configured
-
-    ### Image Studio
-    - Cloudflare image generation
-    - Prompt and style selection
-    - Gallery uploads
-    - Image preview and download
-    - Image review
-
-    ### Stock Market
-    - Finnhub market data
-    - Quote overview
-    - Historical chart data when available
-    - Basic descriptive indicators
-    - Stock market learning section
-
-    ### Productivity
-    - Tool Center
-    - App Builder
-    - Website Builder
-    - Learn & Explore
-    - PDF Assistant
-    - My Creations
-
-    ### Accounts
-    - Sign Up
-    - Login
-    - Continue as Guest
-    - Separate chat histories
-    """)
-
-    st.divider()
-
-    st.caption(
-        "NEXTGEN AI — Built for learning, creativity and productivity."
-    )
-
-
-# ============================================================
-# 35. FALLBACK PAGE
-# ============================================================
-
-else:
-
-    st.warning("Page not found.")
-
-    if st.button("Return to Dashboard"):
-        set_page("Dashboard")
-        st.rerun()
-
-
-# ============================================================
-# 36. GLOBAL FOOTER
-# ============================================================
-
-st.divider()
-
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        padding:12px;
-        color:#c5ccdc;
-        font-size:12px;
-    ">
-        ✦ NEXTGEN AI
-        <br>
-        Learn • Create • Explore
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style="
+    text-align:center;
+    padding:30px 0;
+    color:#737f96;
+    font-size:12px;
+">
+    ✦ NEXTGEN AI MAX EDITION
+    <br>
+    Think clearly. Create freely. Learn continuously.
+</div>
+""", unsafe_allow_html=True)

@@ -528,9 +528,8 @@ def show_error(error):
 def read_aloud(text, key="read"):
     safe = json.dumps(str(text))
 
-    components.html(
-        f"""
-        <button id="btn_{key}" style="
+    html_code = """
+    <button id="btn___ID__" style="
         background:#242b40;
         color:white;
         padding:9px 15px;
@@ -538,38 +537,41 @@ def read_aloud(text, key="read"):
         border-radius:10px;
         cursor:pointer;">
         🔊 Read Aloud
-        </button>
+    </button>
 
-        <script>
-        const textValue={safe};
-        const button=document.getElementById("btn_{key}");
+    <script>
+    const textValue = __TEXT__;
+    const button = document.getElementById("btn___ID__");
 
-        button.onclick=()=>{
-            if(!window.speechSynthesis){
-                button.innerText="Speech unavailable";
-                return;
-            }
+    button.onclick = () => {
+        if (!window.speechSynthesis) {
+            button.innerText = "Speech unavailable";
+            return;
+        }
 
-            window.speechSynthesis.cancel();
+        window.speechSynthesis.cancel();
 
-            const speech=new SpeechSynthesisUtterance(textValue);
+        const speech = new SpeechSynthesisUtterance(textValue);
 
-            speech.lang=/[\\u0900-\\u097F]/.test(textValue)
-                ? "hi-IN" : "en-IN";
+        speech.lang = /[\\u0900-\\u097F]/.test(textValue)
+            ? "hi-IN" : "en-IN";
 
-            speech.rate=1;
-            speechSynthesis.speak(speech);
+        speech.rate = 1;
+        window.speechSynthesis.speak(speech);
 
-            button.innerText="Speaking...";
+        button.innerText = "Speaking...";
 
-            speech.onend=()=>{
-                button.innerText="🔊 Read Aloud";
-            };
+        speech.onend = () => {
+            button.innerText = "🔊 Read Aloud";
         };
-        </script>
-        """,
-        height=55
-    )
+    };
+    </script>
+    """
+
+    html_code = html_code.replace("__TEXT__", safe)
+    html_code = html_code.replace("__ID__", str(key))
+
+    components.html(html_code, height=55)
 
 
 def render_answer(answer, key="answer"):

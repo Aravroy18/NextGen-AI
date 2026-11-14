@@ -897,64 +897,116 @@ if st.session_state.user is None:
 
     hero(
         "Welcome to NEXTGEN AI",
-        "Sign in or create your account to enter your AI workspace."
+        "Your personal AI workspace. Sign in, create a free account, or continue as a guest."
     )
 
-    login_tab, signup_tab = st.tabs(["Login", "Sign Up"])
+    st.markdown("""
+    <style>
+    .auth-wrap {max-width:760px;margin:0 auto 18px auto;padding:22px 24px;
+      border:1px solid #39486d;border-radius:20px;
+      background:linear-gradient(135deg,#172541,#171a36);}
+    .auth-heading {font-size:24px;font-weight:900;color:#fff;margin-bottom:5px;}
+    .auth-sub {font-size:13px;color:#aebbd7;margin-bottom:12px;}
+    .auth-pill {display:inline-block;padding:6px 11px;border-radius:20px;
+      background:#30295a;color:#d8d0ff;font-size:11px;font-weight:800;
+      letter-spacing:.5px;margin-bottom:10px;}
+    </style>
+    <div class="auth-wrap">
+      <div class="auth-pill">✦ YOUR AI WORKSPACE</div>
+      <div class="auth-heading">Get started with NEXTGEN AI</div>
+      <div class="auth-sub">Create an account to keep your chats, or enter instantly as a guest.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    login_tab, signup_tab, guest_tab = st.tabs([
+        "🔐 Login", "✨ Create Account", "🚀 Continue as Guest"
+    ])
 
     with login_tab:
-        with st.form("login_form"):
-            email = st.text_input("Email address")
-            password = st.text_input("Password", type="password")
+        st.markdown("### Welcome back")
+        st.caption("Log in to continue with your saved conversations.")
+        with st.form("login_form", clear_on_submit=False):
+            email = st.text_input("Email address", placeholder="you@example.com")
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
             login_submit = st.form_submit_button(
-                "Login",
-                use_container_width=True
+                "Login to NEXTGEN AI", use_container_width=True
             )
 
         if login_submit:
-            user = login_user(email, password)
-            if user:
-                st.session_state.user = user
-                st.session_state.chat_id = create_chat(user["id"])
-                st.session_state.messages = []
-                st.rerun()
+            if not email.strip() or not password:
+                st.error("Please enter both email and password.")
             else:
-                st.error("Incorrect email or password.")
+                user = login_user(email, password)
+                if user:
+                    user["is_guest"] = False
+                    st.session_state.user = user
+                    st.session_state.chat_id = create_chat(user["id"])
+                    st.session_state.messages = []
+                    st.session_state.page = "Dashboard"
+                    st.rerun()
+                else:
+                    st.error("Email or password is incorrect. Please try again.")
 
     with signup_tab:
-        with st.form("signup_form"):
-            username = st.text_input("Username")
-            new_email = st.text_input("Email address")
-            new_password = st.text_input(
-                "Create password",
-                type="password"
-            )
-            confirm_password = st.text_input(
-                "Confirm password",
-                type="password"
-            )
+        st.markdown("### Create your free account")
+        st.caption("After successful sign up, you will be taken directly into the app — no second login required.")
+        with st.form("signup_form", clear_on_submit=False):
+            username = st.text_input("Your name / username", placeholder="At least 3 characters")
+            new_email = st.text_input("Email address", placeholder="you@example.com")
+            new_password = st.text_input("Create password", type="password", placeholder="At least 8 characters")
+            confirm_password = st.text_input("Confirm password", type="password", placeholder="Re-enter your password")
+            st.caption("Use at least 8 characters. A mix of letters and numbers is recommended.")
             signup_submit = st.form_submit_button(
-                "Create Account",
-                use_container_width=True
+                "Create Account & Enter NEXTGEN AI →", use_container_width=True
             )
 
         if signup_submit:
-            if len(username.strip()) < 3:
-                st.error("Username must have at least 3 characters.")
-            elif "@" not in new_email or "." not in new_email:
-                st.error("Enter a valid email address.")
+            clean_name = username.strip()
+            clean_email = new_email.strip().lower()
+            if len(clean_name) < 3:
+                st.error("Name / username must contain at least 3 characters.")
+            elif len(clean_name) > 32:
+                st.error("Name / username must be 32 characters or fewer.")
+            elif not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", clean_email):
+                st.error("Please enter a valid email address.")
             elif len(new_password) < 8:
-                st.error("Password must have at least 8 characters.")
+                st.error("Password must contain at least 8 characters.")
             elif new_password != confirm_password:
-                st.error("Passwords do not match.")
+                st.error("The two passwords do not match.")
             else:
-                ok, message = register_user(
-                    username, new_email, new_password
-                )
+                ok, message = register_user(clean_name, clean_email, new_password)
                 if ok:
-                    st.success(message + " Please log in.")
+                    # Automatically sign the newly created user in.
+                    new_user = login_user(clean_email, new_password)
+                    if new_user:
+                        new_user["is_guest"] = False
+                        st.session_state.user = new_user
+                        st.session_state.chat_id = create_chat(new_user["id"])
+                        st.session_state.messages = []
+                        st.session_state.page = "Dashboard"
+                        st.success("Account created! Opening your workspace…")
+                        st.rerun()
+                    else:
+                        st.error("Account created, but automatic sign-in failed. Please use Login.")
                 else:
                     st.error(message)
+
+    with guest_tab:
+        st.markdown("### Try NEXTGEN AI instantly")
+        st.write("No email or password required. You can explore the available tools and chat features as a guest.")
+        st.info("Guest conversations are kept separate from registered accounts. They may not be available after your browser session or app storage is reset.")
+        if st.button("🚀 Continue as Guest", key="continue_guest", use_container_width=True):
+            # Negative unique ID keeps guest chats isolated from registered user IDs.
+            guest_id = -(uuid.uuid4().int % 900000000000000000 + 1)
+            st.session_state.user = {
+                "id": guest_id,
+                "username": "Guest",
+                "is_guest": True
+            }
+            st.session_state.chat_id = create_chat(guest_id)
+            st.session_state.messages = []
+            st.session_state.page = "Dashboard"
+            st.rerun()
 
     st.stop()
 
@@ -987,7 +1039,10 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    st.caption("Signed in as " + st.session_state.user["username"])
+    if st.session_state.user.get("is_guest", False):
+        st.caption("Browsing as Guest · Chats are separate from registered accounts")
+    else:
+        st.caption("Signed in as " + st.session_state.user["username"])
 
     if st.button("＋   New Chat", use_container_width=True):
         st.session_state.chat_id = create_chat(USER_ID)
@@ -1050,11 +1105,20 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("Log Out", use_container_width=True):
-        st.session_state.user = None
-        st.session_state.chat_id = None
-        st.session_state.messages = []
-        st.rerun()
+    if st.session_state.user.get("is_guest", False):
+        if st.button("Exit Guest Mode", use_container_width=True):
+            st.session_state.user = None
+            st.session_state.chat_id = None
+            st.session_state.messages = []
+            st.session_state.page = "Dashboard"
+            st.rerun()
+    else:
+        if st.button("Log Out", use_container_width=True):
+            st.session_state.user = None
+            st.session_state.chat_id = None
+            st.session_state.messages = []
+            st.session_state.page = "Dashboard"
+            st.rerun()
 
     st.markdown(
         '<div class="small-muted">NEXTGEN AI V8<br>'
@@ -1706,6 +1770,7 @@ elif page == "Settings":
 
     st.markdown("### Account")
     st.write("Username:", st.session_state.user["username"])
+    st.write("Account type:", "Guest" if st.session_state.user.get("is_guest", False) else "Registered account")
 
     st.caption(
         "Manage API credentials in Streamlit Cloud → "
@@ -1745,6 +1810,8 @@ elif page == "About":
     - PDF Assistant
     - Chat History
     - Account Login and Sign Up
+    - Continue as Guest
+    - Automatic sign-in after account creation
     - Multiple AI providers
 
     ### Technology

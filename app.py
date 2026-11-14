@@ -1024,7 +1024,7 @@ with st.sidebar:
         with col1:
             if st.button(
                 "● " + (title or "New Chat")[:25],
-                key="history_" + cid,
+                key="history_" + str(cid),
                 use_container_width=True
             ):
                 st.session_state.chat_id = cid
@@ -1035,7 +1035,7 @@ with st.sidebar:
         with col2:
             if st.button(
                 "×",
-                key="remove_" + cid
+                key="remove_" + str(cid)
             ):
                 st.session_state.delete_chat_id = cid
                 st.rerun()

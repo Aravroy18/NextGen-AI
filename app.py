@@ -343,7 +343,39 @@ def groq_request(messages):
 
     return answer
 
+def grok_request(messages):
+    if not GROK_KEY:
+        raise RuntimeError("GROK_KEY is missing.")
 
+    url = "https://api.x.ai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROK_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "grok-4.1",
+        "messages": messages,
+        "stream": False
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=120
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+    answer = data["choices"][0]["message"]["content"]
+
+    if not answer or not answer.strip():
+        raise RuntimeError("Grok returned an empty answer.")
+
+    return answer.strip()
 def gemini_request(messages):
     if not GEMINI_KEY:
         raise RuntimeError("Gemini API key is missing.")

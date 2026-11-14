@@ -50,9 +50,7 @@ st.set_page_config(
 
 def db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-
-def init_db():
+    def init_db():
     con = db()
     cur = con.cursor()
 
@@ -75,84 +73,26 @@ def init_db():
         )
     """)
 
-    con.commit()
-    con.close()
-
-
-def create_chat():
-    chat_id = str(uuid.uuid4())
-    now = datetime.now().isoformat()
-
-    con = db()
-    con.execute(
-        "INSERT INTO chats VALUES(?,?,?,?)",
-        (chat_id, "New Chat", now, now)
-    )
-    con.commit()
-    con.close()
-
-    return chat_id
-
-
-def get_chats():
-    con = db()
-    rows = con.execute(
-        "SELECT id,title FROM chats ORDER BY updated DESC"
-    ).fetchall()
-    con.close()
-    return rows
-
-
-def get_messages(chat_id):
-    con = db()
-    rows = con.execute(
-        """SELECT role,content FROM messages
-           WHERE chat_id=? ORDER BY id""",
-        (chat_id,)
-    ).fetchall()
-    con.close()
-
-    return [
-        {"role": role, "content": content}
-        for role, content in rows
+    # पुराने database का automatic migration
+    columns = [
+        row[1] for row in
+        cur.execute("PRAGMA table_info(chats)").fetchall()
     ]
 
+    if "updated" not in columns:
+        cur.execute("ALTER TABLE chats ADD COLUMN updated TEXT")
 
-def save_message(chat_id, role, content):
-    con = db()
-    now = datetime.now().isoformat()
+    if "created" not in columns:
+        cur.execute("ALTER TABLE chats ADD COLUMN created TEXT")
 
-    con.execute(
-        """INSERT INTO messages(chat_id,role,content,created)
-           VALUES(?,?,?,?)""",
-        (chat_id, role, content, now)
-    )
-
-    if role == "user":
-        title = content[:45].replace("\n", " ")
-        con.execute(
-            "UPDATE chats SET title=?,updated=? WHERE id=?",
-            (title, now, chat_id)
-        )
-    else:
-        con.execute(
-            "UPDATE chats SET updated=? WHERE id=?",
-            (now, chat_id)
-        )
+    cur.execute("""
+        UPDATE chats
+        SET updated = COALESCE(updated, created, ?)
+        WHERE updated IS NULL
+    """, (datetime.now().isoformat(),))
 
     con.commit()
     con.close()
-
-
-def delete_chat(chat_id):
-    con = db()
-    con.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
-    con.execute("DELETE FROM chats WHERE id=?", (chat_id,))
-    con.commit()
-    con.close()
-
-
-init_db()
 
 # ============================================================
 # SESSION STATE

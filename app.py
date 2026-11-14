@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# NEXTGEN AI — COMPLETE PREMIUM WORKSPACE
+# NEXTGEN AI — PREMIUM COMPLETE EDITION
 # ============================================================
 
 st.set_page_config(
@@ -27,142 +27,277 @@ st.set_page_config(
 )
 
 APP_NAME = "NEXTGEN AI"
+
 DB_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "nextgen_ai_v2.db"
+    "nextgen_history.db"
 )
 
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-GROQ_KEY = os.getenv("GROQ_API_KEY", "")
-FINNHUB_KEY = os.getenv("FINNHUB_API_KEY", "")
+# ============================================================
+# SECRETS MANAGER
+# ============================================================
 
-CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
-CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+def get_secret(*names, default=""):
+    for name in names:
+        try:
+            value = st.secrets.get(name)
+            if value:
+                return str(value)
+        except Exception:
+            pass
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-IMAGE_MODEL = os.getenv(
+        value = os.getenv(name)
+        if value:
+            return str(value)
+
+    return default
+
+
+GROQ_KEY = get_secret("GROQ_API_KEY")
+
+GEMINI_KEY = get_secret("GEMINI_API_KEY")
+
+OPENAI_KEY = get_secret("OPENAI_API_KEY")
+
+ANTHROPIC_KEY = get_secret("ANTHROPIC_API_KEY")
+
+FINNHUB_KEY = get_secret("FINNHUB_API_KEY")
+
+CLOUDFLARE_ACCOUNT_ID = get_secret(
+    "CLOUDFLARE_ACCOUNT_ID"
+)
+
+CLOUDFLARE_API_TOKEN = get_secret(
+    "CLOUDFLARE_API_TOKEN"
+)
+
+TAVILY_KEY = get_secret("TAVILY_API_KEY")
+
+GROQ_MODEL = get_secret(
+    "GROQ_MODEL",
+    default="llama-3.3-70b-versatile"
+)
+
+GEMINI_MODEL = get_secret(
+    "GEMINI_MODEL",
+    default="gemini-2.5-flash"
+)
+
+OPENAI_MODEL = get_secret(
+    "OPENAI_MODEL",
+    default="gpt-4.1-mini"
+)
+
+ANTHROPIC_MODEL = get_secret(
+    "ANTHROPIC_MODEL",
+    default="claude-3-5-haiku-latest"
+)
+
+IMAGE_MODEL = get_secret(
     "CLOUDFLARE_IMAGE_MODEL",
-    "@cf/black-forest-labs/flux-1-schnell"
+    default="@cf/black-forest-labs/flux-1-schnell"
 )
 
-SYSTEM_PROMPT = """
-You are NEXTGEN AI, a capable and friendly AI assistant.
 
-Rules:
-- Answer in the language used by the user.
-- Be accurate, clear, useful and well structured.
-- Explain difficult concepts in beginner-friendly language.
-- Never invent live data, sources, actions or API results.
-- Clearly state uncertainty when information is incomplete.
-- For school topics, teach step by step.
-- For coding, provide complete and properly formatted code.
-- For finance, provide educational information and explain risks.
-- Never promise investment returns or guaranteed predictions.
-- For creative work, offer original and detailed ideas.
-- Never claim to have generated or uploaded a file unless it happened.
+# ============================================================
+# OWNER INFORMATION
+# ============================================================
+
+OWNER_PROFILE = """
+The owner and creator of this personal AI workspace is Arav Roy.
+
+Arav Roy is a curious young learner and technology enthusiast.
+He studies in Class 7 at Swami Vivekanand Shiksha Niketan.
+
+He is interested in:
+- Artificial Intelligence
+- Python programming
+- Software development
+- Building AI applications
+- Stock market education
+- Cricket and sports
+- Creative content creation
+- YouTube and digital projects
+- Learning new technologies
+
+His YouTube project is called ARAVYX.
+
+He enjoys experimenting with ideas and building projects.
+He is ambitious, creative and interested in improving his
+technical and academic skills.
+
+When someone asks who Arav Roy is, explain these known facts
+in a warm and positive way.
+
+Never invent awards, achievements, qualifications, exam marks,
+financial status or personal facts that are not known.
+
+Never claim that Arav has won an award unless confirmed.
 """
+
+SYSTEM_PROMPT = f"""
+You are NEXTGEN AI.
+
+You are an intelligent, helpful, friendly and capable AI assistant.
+
+OWNER INFORMATION:
+{OWNER_PROFILE}
+
+BEHAVIOUR:
+1. Respond in the language used by the user.
+2. Support English and Hindi.
+3. Be accurate and honest.
+4. Explain difficult topics simply.
+5. For programming, provide complete working code.
+6. For school topics, teach step by step.
+7. Never invent facts, API results or live information.
+8. Never claim an action happened if it did not.
+9. Explain uncertainty honestly.
+10. Keep answers clear and useful.
+
+CODING:
+- Prefer complete solutions.
+- Include necessary imports.
+- Explain installation requirements.
+- Avoid unnecessary placeholders.
+- Mention limitations honestly.
+
+FINANCE:
+- Explain financial risks.
+- Never guarantee investment returns.
+- Do not pretend historical data predicts the future.
+- Treat stock information as educational.
+
+IDENTITY:
+You are NEXTGEN AI, not ChatGPT.
+Never pretend to be another AI product.
+
+You are designed to help users learn, build, research and create.
+"""
+
 
 # ============================================================
 # DATABASE
 # ============================================================
 
-def get_db():
+def db():
     conn = sqlite3.connect(
         DB_PATH,
         timeout=30,
         check_same_thread=False
     )
-    conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
 def init_db():
-    with get_db() as conn:
+    with db() as conn:
+
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS chats (
+            CREATE TABLE IF NOT EXISTS chats(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT DEFAULT 'New Chat',
-                created_at TEXT
+                title TEXT,
+                created TEXT
             )
         """)
 
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
+            CREATE TABLE IF NOT EXISTS messages(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT,
-                FOREIGN KEY(chat_id) REFERENCES chats(id)
-                    ON DELETE CASCADE
+                chat_id INTEGER,
+                role TEXT,
+                content TEXT,
+                created TEXT,
+                FOREIGN KEY(chat_id)
+                REFERENCES chats(id)
+                ON DELETE CASCADE
             )
         """)
 
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_messages_chat
+            CREATE INDEX IF NOT EXISTS message_chat_idx
             ON messages(chat_id)
         """)
+
         conn.commit()
 
 
-def create_chat(title="New Chat"):
-    with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO chats(title, created_at) VALUES(?, ?)",
-            (title, datetime.now().isoformat())
+def new_chat():
+    with db() as conn:
+        cursor = conn.execute(
+            "INSERT INTO chats(title,created) VALUES(?,?)",
+            ("New Chat", datetime.now().isoformat())
         )
         conn.commit()
-        return cur.lastrowid
+        return cursor.lastrowid
 
 
 def get_chats():
-    with get_db() as conn:
+    with db() as conn:
         return conn.execute("""
-            SELECT id, title, created_at
-            FROM chats ORDER BY id DESC
+            SELECT id,title,created
+            FROM chats
+            ORDER BY id DESC
         """).fetchall()
 
 
 def get_messages(chat_id):
-    with get_db() as conn:
+    with db() as conn:
         rows = conn.execute("""
-            SELECT role, content FROM messages
-            WHERE chat_id = ? ORDER BY id ASC
+            SELECT role,content
+            FROM messages
+            WHERE chat_id=?
+            ORDER BY id
         """, (chat_id,)).fetchall()
 
-    return [{"role": r, "content": c} for r, c in rows]
+    return [
+        {"role": role, "content": content}
+        for role, content in rows
+    ]
 
 
 def save_message(chat_id, role, content):
-    with get_db() as conn:
+    with db() as conn:
         conn.execute("""
-            INSERT INTO messages(chat_id, role, content, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO messages(
+                chat_id,role,content,created
+            )
+            VALUES(?,?,?,?)
         """, (
-            chat_id, role, content, datetime.now().isoformat()
+            chat_id,
+            role,
+            content,
+            datetime.now().isoformat()
         ))
         conn.commit()
 
 
-def update_chat_title(chat_id, title):
-    with get_db() as conn:
+def rename_chat(chat_id, title):
+    with db() as conn:
+        conn.execute("""
+            UPDATE chats
+            SET title=?
+            WHERE id=?
+        """, (title[:45], chat_id))
+        conn.commit()
+
+
+def remove_chat(chat_id):
+    with db() as conn:
         conn.execute(
-            "UPDATE chats SET title=? WHERE id=?",
-            ((title or "New Chat").strip()[:45], chat_id)
+            "DELETE FROM messages WHERE chat_id=?",
+            (chat_id,)
+        )
+        conn.execute(
+            "DELETE FROM chats WHERE id=?",
+            (chat_id,)
         )
         conn.commit()
 
 
-def delete_chat(chat_id):
-    with get_db() as conn:
-        conn.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
-        conn.execute("DELETE FROM chats WHERE id=?", (chat_id,))
-        conn.commit()
-
-
 init_db()
+
 
 # ============================================================
 # SESSION STATE
@@ -172,21 +307,15 @@ DEFAULTS = {
     "page": "AI Chat",
     "chat_id": None,
     "messages": [],
+    "provider": "Auto",
     "last_answer": "",
-    "last_image": None,
-    "last_image_prompt": "",
-    "market_symbol": "AAPL",
-    "market_data": None,
-    "analysis_result": "",
-    "pdf_result": "",
-    "vision_result": "",
-    "creative_prompt": "",
-    "chat_upload_key": 0,
-    "pending_prompt": None,
     "project_files": {},
-    "project_name": "my_project",
-    "project_type": "Website",
-    "project_summary": ""
+    "project_name": "",
+    "project_summary": "",
+    "last_image": None,
+    "stock_result": None,
+    "pdf_result": "",
+    "vision_result": ""
 }
 
 for key, value in DEFAULTS.items():
@@ -194,7 +323,7 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value
 
 if st.session_state.chat_id is None:
-    st.session_state.chat_id = create_chat()
+    st.session_state.chat_id = new_chat()
     st.session_state.messages = []
 
 
@@ -204,172 +333,172 @@ def switch_chat(chat_id):
     st.session_state.page = "AI Chat"
 
 
-def new_chat():
-    st.session_state.chat_id = create_chat()
+def start_new_chat():
+    st.session_state.chat_id = new_chat()
     st.session_state.messages = []
-    st.session_state.page = "AI Chat"
     st.session_state.last_answer = ""
+    st.session_state.page = "AI Chat"
+
+
+def add_message(role, content):
+    st.session_state.messages.append({
+        "role": role,
+        "content": content
+    })
+
+    save_message(
+        st.session_state.chat_id,
+        role,
+        content
+    )
 
 
 # ============================================================
-# DESIGN SYSTEM
+# PREMIUM CSS
 # ============================================================
 
 st.markdown("""
 <style>
+
 #MainMenu {visibility:hidden;}
 footer {visibility:hidden;}
 header {visibility:hidden;}
 
 .stApp {
-    background: #090b10;
-    color: #f5f5f7;
+    background:#090b10;
+    color:#ffffff;
 }
 
 [data-testid="stSidebar"] {
-    background: #10131b;
-    border-right: 1px solid #252a36;
+    background:#10131b;
+    border-right:1px solid #272c39;
 }
 
 [data-testid="stSidebar"] button {
-    border-radius: 10px;
+    background:transparent;
+    color:#ffffff;
+    border:1px solid transparent;
+    border-radius:10px;
+    text-align:left;
+}
+
+[data-testid="stSidebar"] button:hover {
+    background:#202538;
+    border-color:#5551a8;
 }
 
 .main .block-container {
-    max-width: 1050px;
-    padding-top: 2rem;
-    padding-bottom: 2rem;
+    max-width:1050px;
+    padding-top:2rem;
+    padding-bottom:4rem;
 }
 
-h1, h2, h3 {
-    color: #ffffff;
+h1,h2,h3,h4 {
+    color:#ffffff !important;
+}
+
+p,li,label {
+    color:#e6e8ef;
 }
 
 .brand {
-    font-size: 25px;
-    font-weight: 800;
-    letter-spacing: 1px;
-    color: #ffffff;
+    font-size:26px;
+    font-weight:900;
+    letter-spacing:1px;
+    color:white;
 }
 
 .brand span {
-    color: #8b7cff;
+    color:#9184ff;
 }
 
-.subtitle {
-    color: #858b9b;
-    font-size: 13px;
+.muted {
+    color:#858da0;
+    font-size:13px;
 }
 
-.chat-card {
-    background: #121722;
-    border: 1px solid #252d3b;
-    border-radius: 17px;
-    padding: 17px;
-    margin: 12px 0;
-}
-
-.user-card {
-    background: #191d2a;
-    border: 1px solid #30364a;
-    border-radius: 17px;
-    padding: 16px;
-    margin: 12px 0;
-}
-
-.assistant-card {
-    background: #101722;
-    border: 1px solid #263348;
-    border-radius: 17px;
-    padding: 17px;
-    margin: 12px 0;
+.hero {
+    background:linear-gradient(
+        120deg,#17172a,#111a2b
+    );
+    border:1px solid #30344b;
+    padding:24px;
+    border-radius:20px;
+    margin-bottom:20px;
 }
 
 .stButton button {
-    border-radius: 11px;
-    border: 1px solid #343b4c;
-    background: #171c28;
-    color: white;
-    min-height: 42px;
+    background:#191e2c;
+    border:1px solid #343b50;
+    border-radius:12px;
+    color:white;
+    min-height:42px;
 }
 
 .stButton button:hover {
-    border-color: #8b7cff;
-    color: white;
+    background:#292642;
+    border-color:#8176e8;
+    color:white;
 }
 
 [data-testid="stChatInput"] {
-    border: 1px solid #45405f;
-    border-radius: 18px;
-    background: #111522;
+    background:#151927;
+    border:1px solid #49436e;
+    border-radius:18px;
 }
 
 [data-testid="stChatInput"] textarea {
-    color: white !important;
-    -webkit-text-fill-color: white !important;
+    color:white !important;
+    -webkit-text-fill-color:white !important;
 }
 
-section[data-testid="stFileUploader"] {
-    background: #121722;
-    border-radius: 14px;
-    padding: 10px;
+[data-testid="stChatMessage"] {
+    background:transparent;
+    border:none;
 }
 
-.market-box {
-    background: #141a27;
-    border: 1px solid #30384a;
-    border-radius: 13px;
-    padding: 15px;
+[data-testid="stMarkdownContainer"] {
+    color:white;
 }
 
-.small-muted {
-    color: #8b91a1;
-    font-size: 12px;
-}
-
-/* ALL ANSWERS — PURE WHITE */
-
-.stMarkdown,
-.stMarkdown *,
-[data-testid="stMarkdownContainer"],
-[data-testid="stMarkdownContainer"] *,
-[data-testid="stChatMessage"],
-[data-testid="stChatMessage"] *,
-[data-testid="stAlert"] *,
-.stCode,
-.stCode *,
-pre,
-pre *,
-code,
-table,
-th,
-td {
-    color: #FFFFFF !important;
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {
+    color:#f5f5f7 !important;
 }
 
 .stTextInput input,
 .stTextArea textarea {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
+    color:white !important;
+    -webkit-text-fill-color:white !important;
+    background:#151927 !important;
 }
 
-.stSelectbox div,
-.stRadio label,
-.stCheckbox label {
-    color: #FFFFFF;
+.stSelectbox div {
+    color:white;
 }
 
-[data-testid="stChatInput"] textarea {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
+.stFileUploader {
+    background:#131927;
+    border-radius:14px;
 }
 
-.project-box {
-    background: #111827;
-    border: 1px solid #30384a;
-    border-radius: 15px;
-    padding: 16px;
-    margin: 10px 0;
+.panel {
+    background:#141a27;
+    border:1px solid #30394a;
+    border-radius:15px;
+    padding:18px;
+    margin:10px 0;
+}
+
+[data-testid="stMetric"] {
+    background:#141a27;
+    padding:15px;
+    border-radius:12px;
+    border:1px solid #30394a;
+}
+
+hr {
+    border-color:#303547;
 }
 
 </style>
@@ -377,112 +506,119 @@ td {
 
 
 # ============================================================
-# COMMON UI HELPERS
+# COMMON HELPERS
 # ============================================================
 
 def hero(title, subtitle=""):
-    st.markdown(f"## {title}")
-    if subtitle:
-        st.caption(subtitle)
-    st.divider()
+    st.markdown(
+        f"""
+        <div class="hero">
+            <h2>{title}</h2>
+            <div class="muted">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
-def safe_error(exc):
-    st.error(str(exc)[:700])
-
-
-def add_chat_message(role, content):
-    st.session_state.messages.append({
-        "role": role,
-        "content": content
-    })
-    save_message(st.session_state.chat_id, role, content)
+def show_error(error):
+    st.error(str(error)[:800])
 
 
 def read_aloud(text, key="read"):
-    safe_text = json.dumps(str(text))
+    safe = json.dumps(str(text))
 
     components.html(
         f"""
-        <div style="padding:5px 0;">
-            <button id="read_{key}" style="
-                background:#252d42;color:white;
-                border:1px solid #414b66;
-                border-radius:9px;padding:8px 13px;
-                cursor:pointer;">
-                🔊 Read Aloud
-            </button>
-            <script>
-            const speechText = {safe_text};
-            const btn = document.getElementById("read_{key}");
-            btn.onclick = function() {{
-                if (!window.speechSynthesis) {{
-                    btn.innerText = "Speech unavailable";
-                    return;
-                }}
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(speechText);
-                utterance.lang = "en-IN";
-                utterance.rate = 1;
-                window.speechSynthesis.speak(utterance);
-                btn.innerText = "▶ Speaking...";
-                utterance.onend = () => {{
-                    btn.innerText = "🔊 Read Aloud";
-                }};
-            }};
-            </script>
-        </div>
+        <button id="btn_{key}" style="
+        background:#242b40;
+        color:white;
+        padding:9px 15px;
+        border:1px solid #505b7b;
+        border-radius:10px;
+        cursor:pointer;">
+        🔊 Read Aloud
+        </button>
+
+        <script>
+        const textValue={safe};
+        const button=document.getElementById("btn_{key}");
+
+        button.onclick=()=>{
+            if(!window.speechSynthesis){
+                button.innerText="Speech unavailable";
+                return;
+            }
+
+            window.speechSynthesis.cancel();
+
+            const speech=new SpeechSynthesisUtterance(textValue);
+
+            speech.lang=/[\\u0900-\\u097F]/.test(textValue)
+                ? "hi-IN" : "en-IN";
+
+            speech.rate=1;
+            speechSynthesis.speak(speech);
+
+            button.innerText="Speaking...";
+
+            speech.onend=()=>{
+                button.innerText="🔊 Read Aloud";
+            };
+        };
+        </script>
         """,
         height=55
     )
 
 
-def render_answer(text, key="answer"):
-    st.markdown(text)
-    read_aloud(text, key)
+def render_answer(answer, key="answer"):
+    st.markdown(answer)
+    read_aloud(answer, key)
 
 
 # ============================================================
-# GROQ AI ENGINE
+# GROQ ENGINE
 # ============================================================
 
 def groq_request(messages):
+
     if not GROQ_KEY:
-        raise RuntimeError("GROQ_API_KEY is missing.")
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_KEY}",
-        "Content-Type": "application/json"
-    }
+        raise RuntimeError("Groq API key missing.")
 
     formatted = []
 
-    for msg in messages:
-        role = msg.get("role", "user")
-        if role not in ("system", "user", "assistant"):
-            role = "user"
+    for message in messages:
+        role = message["role"]
+
+        if role not in ["system", "user", "assistant"]:
+            continue
 
         formatted.append({
             "role": role,
-            "content": str(msg.get("content", ""))
+            "content": str(message["content"])
         })
 
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": formatted,
-        "temperature": 0.7,
-        "max_tokens": 3500
-    }
-
     response = requests.post(
-        url, headers=headers, json=payload, timeout=90
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": GROQ_MODEL,
+            "messages": formatted,
+            "temperature": 0.7,
+            "max_tokens": 5000
+        },
+        timeout=90
     )
+
     response.raise_for_status()
 
-    data = response.json()
-    answer = data["choices"][0]["message"]["content"]
+    result = response.json()
+
+    answer = result["choices"][0]["message"]["content"]
 
     if not answer:
         raise RuntimeError("Groq returned an empty answer.")
@@ -491,38 +627,43 @@ def groq_request(messages):
 
 
 # ============================================================
-# GEMINI AI ENGINE
+# GEMINI ENGINE
 # ============================================================
 
 def gemini_request(messages):
+
     if not GEMINI_KEY:
-        raise RuntimeError("GEMINI_API_KEY is missing.")
+        raise RuntimeError("Gemini API key missing.")
 
     from google import genai
 
     client = genai.Client(api_key=GEMINI_KEY)
-    system_instruction = SYSTEM_PROMPT
-    contents = []
 
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = str(msg.get("content", ""))
+    history = []
+
+    system = SYSTEM_PROMPT
+
+    for item in messages:
+
+        role = item["role"]
+        content = str(item["content"])
 
         if role == "system":
-            system_instruction += "\n" + content
+            system += "\n" + content
             continue
 
-        contents.append({
+        history.append({
             "role": "model" if role == "assistant" else "user",
             "parts": [{"text": content}]
         })
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=contents,
+        contents=history,
         config={
-            "system_instruction": system_instruction,
-            "temperature": 0.7
+            "system_instruction": system,
+            "temperature": 0.7,
+            "max_output_tokens": 5000
         }
     )
 
@@ -533,66 +674,223 @@ def gemini_request(messages):
 
 
 # ============================================================
-# AI ROUTER
+# OPENAI ENGINE
 # ============================================================
 
-def ask_ai(messages):
+def openai_request(messages):
+
+    if not OPENAI_KEY:
+        raise RuntimeError("OpenAI API key missing.")
+
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": OPENAI_MODEL,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4500
+        },
+        timeout=90
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    return result["choices"][0]["message"]["content"]
+
+
+# ============================================================
+# ANTHROPIC ENGINE
+# ============================================================
+
+def anthropic_request(messages):
+
+    if not ANTHROPIC_KEY:
+        raise RuntimeError("Anthropic API key missing.")
+
+    system = SYSTEM_PROMPT
+
+    conversation = []
+
+    for item in messages:
+
+        if item["role"] == "system":
+            system += "\n" + item["content"]
+        elif item["role"] in ["user", "assistant"]:
+            conversation.append({
+                "role": item["role"],
+                "content": str(item["content"])
+            })
+
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        },
+        json={
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 4500,
+            "system": system,
+            "messages": conversation
+        },
+        timeout=90
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    return "".join(
+        item.get("text", "")
+        for item in data.get("content", [])
+        if item.get("type") == "text"
+    )
+
+
+# ============================================================
+# AI ROUTER WITH FALLBACK
+# ============================================================
+
+def ask_ai(messages, provider="Auto"):
+
+    providers = {
+        "Groq": groq_request,
+        "Gemini": gemini_request,
+        "OpenAI": openai_request,
+        "Claude": anthropic_request
+    }
+
+    if provider != "Auto":
+
+        if provider not in providers:
+            raise RuntimeError("Invalid AI provider.")
+
+        return providers[provider](messages)
+
     errors = []
 
-    if GROQ_KEY:
-        try:
-            return groq_request(messages)
-        except Exception as exc:
-            errors.append("Groq: " + str(exc)[:220])
+    for name, function in providers.items():
 
-    if GEMINI_KEY:
-        try:
-            return gemini_request(messages)
-        except Exception as exc:
-            errors.append("Gemini: " + str(exc)[:220])
+        key_available = {
+            "Groq": GROQ_KEY,
+            "Gemini": GEMINI_KEY,
+            "OpenAI": OPENAI_KEY,
+            "Claude": ANTHROPIC_KEY
+        }[name]
 
-    if not GROQ_KEY and not GEMINI_KEY:
-        return (
-            "AI API key missing. Add GROQ_API_KEY or "
-            "GEMINI_API_KEY to your .env file."
+        if not key_available:
+            continue
+
+        try:
+            answer = function(messages)
+
+            if answer and answer.strip():
+                return answer
+
+        except Exception as exc:
+            errors.append(
+                f"{name}: {str(exc)[:180]}"
+            )
+
+    if not errors:
+        raise RuntimeError(
+            "No AI API keys configured in Streamlit Secrets."
         )
 
     raise RuntimeError(" | ".join(errors))
 
 
 def ask_single(prompt):
+
     return ask_ai([
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
     ])
 
 
 # ============================================================
-# PDF READER
+# VOICE INPUT — GROQ WHISPER
 # ============================================================
 
-def read_pdf(uploaded_file):
+def transcribe_audio(audio_file):
+
+    if not GROQ_KEY:
+        raise RuntimeError(
+            "Groq API key required for voice transcription."
+        )
+
+    audio_file.seek(0)
+
+    response = requests.post(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        headers={
+            "Authorization": f"Bearer {GROQ_KEY}"
+        },
+        files={
+            "file": (
+                "recording.wav",
+                audio_file.getvalue(),
+                "audio/wav"
+            )
+        },
+        data={
+            "model": "whisper-large-v3",
+            "response_format": "json"
+        },
+        timeout=120
+    )
+
+    response.raise_for_status()
+
+    return response.json().get("text", "")
+
+
+# ============================================================
+# PDF ENGINE
+# ============================================================
+
+def read_pdf(file):
+
     from pypdf import PdfReader
 
-    reader = PdfReader(uploaded_file)
+    reader = PdfReader(file)
+
     pages = []
 
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            pages.append(page_text)
+    for index, page in enumerate(reader.pages):
 
-    return "\n\n".join(pages)[:45000]
+        text = page.extract_text() or ""
+
+        if text.strip():
+            pages.append(
+                f"PAGE {index + 1}\n{text}"
+            )
+
+    return "\n\n".join(pages)[:50000]
 
 
 # ============================================================
-# VISION — GEMINI IMAGE UNDERSTANDING
+# IMAGE VISION
 # ============================================================
 
-def analyze_image(uploaded_file, prompt):
+def analyze_image(file, prompt):
+
     if not GEMINI_KEY:
         raise RuntimeError(
-            "Image understanding requires GEMINI_API_KEY."
+            "Gemini API key required for image understanding."
         )
 
     from google import genai
@@ -601,31 +899,38 @@ def analyze_image(uploaded_file, prompt):
     client = genai.Client(api_key=GEMINI_KEY)
 
     image_part = types.Part.from_bytes(
-        data=uploaded_file.getvalue(),
-        mime_type=uploaded_file.type
+        data=file.getvalue(),
+        mime_type=file.type
     )
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=[prompt, image_part]
+        contents=[
+            prompt or "Describe this image.",
+            image_part
+        ],
+        config={
+            "system_instruction": SYSTEM_PROMPT
+        }
     )
 
     if not response.text:
-        raise RuntimeError("No image analysis was returned.")
+        raise RuntimeError("No vision response returned.")
 
     return response.text
 
 
 # ============================================================
-# CREATIVE STUDIO — CLOUDFLARE IMAGE GENERATION
+# CLOUDFLARE IMAGE GENERATOR
 # ============================================================
 
 def generate_image(prompt):
-    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
-        raise RuntimeError(
-            "Add CLOUDFLARE_ACCOUNT_ID and "
-            "CLOUDFLARE_API_TOKEN to enable image generation."
-        )
+
+    if not CLOUDFLARE_ACCOUNT_ID:
+        raise RuntimeError("Cloudflare Account ID missing.")
+
+    if not CLOUDFLARE_API_TOKEN:
+        raise RuntimeError("Cloudflare API token missing.")
 
     url = (
         "https://api.cloudflare.com/client/v4/accounts/"
@@ -634,381 +939,304 @@ def generate_image(prompt):
         + IMAGE_MODEL
     )
 
-    headers = {
-        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
     response = requests.post(
         url,
-        headers=headers,
-        json={"prompt": prompt},
-        timeout=120
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "prompt": prompt
+        },
+        timeout=180
     )
+
     response.raise_for_status()
 
-    if "image" in response.headers.get("content-type", ""):
+    if "image" in response.headers.get(
+        "content-type", ""
+    ):
         return response.content
 
     data = response.json()
 
-    if isinstance(data.get("result"), dict):
-        image_data = data["result"].get("image")
-        if image_data:
-            return base64.b64decode(image_data)
+    image_data = data.get("result", {}).get("image")
 
-    raise RuntimeError("Image API did not return a supported image.")
+    if image_data:
+        return base64.b64decode(image_data)
+
+    raise RuntimeError("Image generation failed.")
 
 
 # ============================================================
-# FINNHUB STOCK DATA
+# FINNHUB STOCK ENGINE
 # ============================================================
 
-def finnhub_get(endpoint, params):
+def finnhub(endpoint, params):
+
     if not FINNHUB_KEY:
-        raise RuntimeError("FINNHUB_API_KEY is missing.")
+        raise RuntimeError("Finnhub API key missing.")
 
     params = dict(params)
+
     params["token"] = FINNHUB_KEY
 
     response = requests.get(
         "https://finnhub.io/api/v1/" + endpoint,
         params=params,
-        timeout=25
+        timeout=30
     )
+
     response.raise_for_status()
+
     return response.json()
 
 
-def get_stock_quote(symbol):
-    return finnhub_get("quote", {"symbol": symbol.upper()})
+def stock_quote(symbol):
+    return finnhub("quote", {"symbol": symbol.upper()})
 
 
-def get_stock_profile(symbol):
-    return finnhub_get("stock/profile2", {"symbol": symbol.upper()})
+def stock_profile(symbol):
+    return finnhub(
+        "stock/profile2",
+        {"symbol": symbol.upper()}
+    )
 
 
-def get_stock_news(symbol):
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=7)
+def stock_candles(symbol, days=90):
 
-    return finnhub_get("company-news", {
-        "symbol": symbol.upper(),
-        "from": start_date.isoformat(),
-        "to": end_date.isoformat()
-    })
+    end = int(datetime.now().timestamp())
 
-
-def get_stock_candles(symbol, resolution="D", days=90):
-    end_time = int(datetime.now().timestamp())
-    start_time = int(
+    start = int(
         (datetime.now() - timedelta(days=days)).timestamp()
     )
 
-    return finnhub_get("stock/candle", {
-        "symbol": symbol.upper(),
-        "resolution": resolution,
-        "from": start_time,
-        "to": end_time
-    })
+    return finnhub(
+        "stock/candle",
+        {
+            "symbol": symbol.upper(),
+            "resolution": "D",
+            "from": start,
+            "to": end
+        }
+    )
 
 
-def money(value):
-    try:
-        return f"${float(value):,.2f}"
-    except (ValueError, TypeError):
-        return "N/A"
+def stock_news(symbol):
 
+    today = datetime.now().date()
 
-# ============================================================
-# STOCK LEARNING CONTENT
-# ============================================================
+    start = today - timedelta(days=7)
 
-STOCK_LESSONS = {
-    "Stock Market Basics": """
-# Stock Market Basics
-
-A stock represents a small ownership share in a company.
-
-- **Stock:** A share of company ownership.
-- **Exchange:** A marketplace where securities trade.
-- **Ticker:** A short symbol used to identify a company.
-- **Shareholder:** A person or institution holding shares.
-- **Index:** A group of securities used to track a market.
-
-Buyers and sellers place orders. Prices change as supply,
-demand and expectations change.
-
-A rising price does not guarantee future gains.
-""",
-    "NSE, BSE and Global Markets": """
-# NSE, BSE and Global Markets
-
-### India
-- NSE: National Stock Exchange.
-- BSE: Bombay Stock Exchange.
-- NIFTY 50: A major Indian equity index.
-- SENSEX: A major BSE index.
-
-### Global examples
-- NYSE
-- NASDAQ
-- S&P 500
-
-Different markets have different trading hours, rules and currencies.
-""",
-    "Candlestick Charts": """
-# Candlestick Charts
-
-Each candle summarizes price movement over a selected time interval.
-
-- Open: Price at the start.
-- High: Highest price.
-- Low: Lowest price.
-- Close: Price at the end.
-
-A candle describes historical activity; it cannot guarantee
-what the next price will be.
-""",
-    "Volume and Liquidity": """
-# Volume and Liquidity
-
-**Volume** measures how many shares traded during a period.
-
-**Liquidity** describes how easily something can be bought or sold
-without causing a large price change.
-
-High volume does not automatically mean a stock is a good investment.
-""",
-    "Risk and Diversification": """
-# Risk and Diversification
-
-Risk is the possibility that an outcome differs from expectations.
-
-Examples include company risk, market risk, economic risk,
-currency risk and liquidity risk.
-
-Diversification spreads exposure. It can reduce some risks,
-but cannot remove all risk.
-""",
-    "Fundamental Analysis": """
-# Fundamental Analysis
-
-Fundamental analysis studies a company's business and financial health.
-
-Common topics include revenue, profit, debt, cash flow,
-business model, competition, management and valuation.
-
-One financial ratio is not enough to understand a company.
-""",
-    "Technical Analysis": """
-# Technical Analysis
-
-Technical analysis studies historical prices and trading activity.
-
-Common concepts include trend, support and resistance,
-moving averages, RSI, volume and volatility.
-
-These tools do not guarantee future price movements.
-""",
-    "ETFs and Index Funds": """
-# ETFs and Index Funds
-
-An ETF is a fund that trades on an exchange.
-An index fund aims to track a selected index.
-
-Study what it holds, its costs, tracking difference,
-risks and benchmark before evaluating a fund.
-"""
-}
+    return finnhub(
+        "company-news",
+        {
+            "symbol": symbol.upper(),
+            "from": start.isoformat(),
+            "to": today.isoformat()
+        }
+    )
 
 
 # ============================================================
-# PROJECT BUILDER ENGINE
+# PROJECT BUILDER
 # ============================================================
 
-def clean_filename(name):
-    name = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
-    return name.strip("_")[:50] or "my_project"
+def clean_name(name):
+
+    value = re.sub(
+        r"[^a-zA-Z0-9_-]+",
+        "_",
+        name
+    )
+
+    return value.strip("_")[:50] or "my_project"
 
 
-def extract_json_object(text):
-    text = text.strip()
+def extract_project_json(raw):
 
-    text = re.sub(
+    raw = raw.strip()
+
+    raw = re.sub(
         r"^```(?:json)?\s*|\s*```$",
         "",
-        text,
-        flags=re.IGNORECASE
+        raw,
+        flags=re.I
     ).strip()
 
-    start = text.find("{")
-    end = text.rfind("}")
+    start = raw.find("{")
+    end = raw.rfind("}")
 
-    if start == -1 or end == -1:
-        raise ValueError("AI did not return a valid project JSON.")
+    if start < 0 or end < 0:
+        raise ValueError("Invalid project JSON returned.")
 
-    return json.loads(text[start:end + 1])
+    return json.loads(raw[start:end + 1])
 
 
-def build_project(project_type, name, description, features, style):
-    """
-    Ask AI for a complete multi-file project.
-    The AI must return a JSON object containing files.
-    """
+def build_project(project_type, name, description, features, design):
 
-    safe_name = clean_filename(name)
+    name = clean_name(name)
 
     if project_type == "Website":
-        instructions = """
-Create a complete responsive website project.
 
-Preferred files:
-- index.html
-- style.css
-- script.js
-- README.md
+        instruction = """
+Create a complete responsive website.
 
-Use clean HTML, CSS and JavaScript.
-Make navigation, buttons and forms work where appropriate.
-Make the layout responsive for mobile and desktop.
-Do not use fake claims or fake payment processing.
-If a backend is required, explain that separately.
+Files should include:
+index.html
+style.css
+script.js
+README.md
+
+Use HTML, CSS and JavaScript.
+Make navigation and interactions work.
+Use responsive design.
 """
+
     else:
-        instructions = """
-Create a complete Python Streamlit application project.
 
-Preferred files:
-- app.py
-- requirements.txt
-- README.md
+        instruction = """
+Create a complete Python Streamlit application.
 
-Include all imports, application code and setup instructions.
-Use a clean interface and working interactions.
-Do not pretend external APIs are configured.
-Put API keys in environment variables, never hardcode secrets.
+Files should include:
+app.py
+requirements.txt
+README.md
+
+Include imports, complete implementation,
+installation and running instructions.
 """
 
     prompt = f"""
-You are a senior software developer and project architect.
+You are a senior software engineer.
 
-Build a useful, detailed project from the user's brief.
+Create a complete project.
 
-PROJECT TYPE: {project_type}
-PROJECT NAME: {safe_name}
-USER REQUIREMENTS:
+Project type: {project_type}
+
+Project name: {name}
+
+Description:
 {description}
 
-REQUESTED FEATURES:
+Features:
 {features}
 
-DESIGN PREFERENCE:
-{style}
+Design:
+{design}
 
-{instructions}
+{instruction}
 
-Return ONLY valid JSON in this exact structure:
+Return ONLY valid JSON:
+
 {{
-  "project_name": "{safe_name}",
-  "summary": "Short project description",
-  "files": {{
-    "index.html": "complete file contents",
-    "style.css": "complete file contents",
-    "script.js": "complete file contents",
-    "README.md": "complete file contents"
-  }}
+    "summary": "Project summary",
+    "files": {{
+        "filename": "complete file content"
+    }}
 }}
 
-For an app, use app.py, requirements.txt and README.md instead.
-Include only files relevant to the project type.
-Every file must contain complete usable content.
-Do not use placeholders such as 'write code here'.
-Do not omit important sections.
-Escape newlines and quotation marks correctly for valid JSON.
+Do not return explanations outside JSON.
+Do not use placeholder code.
+Do not invent API keys.
+Use environment variables for secrets.
 """
 
-    raw = ask_single(prompt)
-    data = extract_json_object(raw)
+    answer = ask_single(prompt)
+
+    data = extract_project_json(answer)
 
     files = data.get("files", {})
 
     if not isinstance(files, dict) or not files:
-        raise ValueError("The project response did not contain files.")
+        raise ValueError("No project files returned.")
 
-    cleaned_files = {}
+    cleaned = {}
 
     for filename, content in files.items():
-        filename = str(filename).replace("\\", "/").strip()
+
+        filename = str(filename).replace("\\", "/")
+
         if (
             filename.startswith("/")
             or ".." in filename.split("/")
-            or not filename
+            or not filename.strip()
         ):
             continue
 
         if isinstance(content, str):
-            cleaned_files[filename] = content
+            cleaned[filename] = content
 
-    if not cleaned_files:
-        raise ValueError("No valid project files were returned.")
+    if not cleaned:
+        raise ValueError("No valid project files.")
 
     return {
-        "project_name": safe_name,
-        "summary": str(data.get("summary", "")),
-        "files": cleaned_files
+        "name": name,
+        "summary": data.get("summary", ""),
+        "files": cleaned
     }
 
 
-def create_project_zip(project):
-    memory_file = io.BytesIO()
+def make_zip(project):
+
+    memory = io.BytesIO()
 
     with zipfile.ZipFile(
-        memory_file,
+        memory,
         "w",
         zipfile.ZIP_DEFLATED
-    ) as zip_file:
+    ) as archive:
 
         for filename, content in project["files"].items():
-            zip_file.writestr(
-                project["project_name"] + "/" + filename,
+
+            archive.writestr(
+                project["name"] + "/" + filename,
                 content
             )
 
-    memory_file.seek(0)
-    return memory_file.getvalue()
+    memory.seek(0)
+
+    return memory.getvalue()
 
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR
 # ============================================================
 
-PAGES = {
-    "✦ AI Chat": "AI Chat",
-    "📈 Stock Market Learning": "Stock Market",
-    "🔍 Stock Analysis": "Stock Analysis",
-    "👁 Vision": "Vision",
-    "🎨 Creative Studio": "Creative Studio",
-    "📄 PDF Assistant": "PDF Assistant",
-    "🛠 Build Studio": "Build Studio",
-    "⚙ Settings": "Settings"
-}
+PAGES = [
+    ("✦ AI Chat", "AI Chat"),
+    ("👁 Vision", "Vision"),
+    ("🎨 Creative Studio", "Creative Studio"),
+    ("📄 PDF Assistant", "PDF Assistant"),
+    ("📈 Stock Market", "Stock Market"),
+    ("🔍 Stock Analysis", "Stock Analysis"),
+    ("🛠 Build Studio", "Build Studio"),
+    ("⚙ Settings", "Settings")
+]
+
 
 with st.sidebar:
+
     st.markdown(
         '<div class="brand">✦ NEXTGEN <span>AI</span></div>',
         unsafe_allow_html=True
     )
-    st.caption("Your intelligent workspace")
+
+    st.caption("Your Intelligent Workspace")
+
     st.divider()
 
-    if st.button("＋  New Chat", use_container_width=True):
-        new_chat()
+    if st.button(
+        "＋  New Chat",
+        use_container_width=True
+    ):
+        start_new_chat()
         st.rerun()
 
     st.markdown("### Workspace")
 
-    for label, page_name in PAGES.items():
+    for label, page_name in PAGES:
+
         if st.button(
             label,
             key="nav_" + page_name,
@@ -1018,20 +1246,23 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+
     st.markdown("### Chat History")
 
-    for cid, title, created in get_chats()[:20]:
+    for chat_id, title, created in get_chats()[:30]:
+
         if st.button(
             "◉  " + (title or "New Chat"),
-            key=f"history_{cid}",
+            key=f"history_{chat_id}",
             use_container_width=True
         ):
-            switch_chat(cid)
+            switch_chat(chat_id)
             st.rerun()
 
     st.divider()
-    st.caption("NEXTGEN AI • Premium Edition")
-    st.caption("AI responses may contain errors.")
+
+    st.caption("NEXTGEN AI Premium")
+    st.caption("Built for Arav Roy")
 
 
 # ============================================================
@@ -1046,433 +1277,243 @@ page = st.session_state.page
 # ============================================================
 
 if page == "AI Chat":
+
     hero(
         "✦ NEXTGEN AI",
-        "Ask anything. Think bigger. Create more."
+        "Ask anything. Learn anything. Build anything."
     )
 
+    provider = st.selectbox(
+        "AI Model",
+        [
+            "Auto",
+            "Groq",
+            "Gemini",
+            "OpenAI",
+            "Claude"
+        ],
+        index=[
+            "Auto",
+            "Groq",
+            "Gemini",
+            "OpenAI",
+            "Claude"
+        ].index(st.session_state.provider)
+    )
+
+    st.session_state.provider = provider
+
     if not st.session_state.messages:
+
         st.markdown("### Welcome to NEXTGEN AI")
+
         st.write(
-            "Your workspace for learning, creativity, "
-            "research, coding and everyday questions."
+            "Your personal workspace for learning, "
+            "coding, research and creativity."
         )
 
-        st.markdown("#### Try asking")
-
         suggestions = [
-            "Explain artificial intelligence simply.",
-            "Help me understand a difficult science topic.",
-            "Create a professional website in Python.",
-            "Give me creative YouTube video ideas."
+            "Introduce yourself.",
+            "Teach me Python programming.",
+            "Explain artificial intelligence.",
+            "Help me create a professional website."
         ]
 
         cols = st.columns(2)
 
         for index, suggestion in enumerate(suggestions):
+
             with cols[index % 2]:
+
                 if st.button(
                     suggestion,
-                    key=f"suggest_{index}",
+                    key=f"suggestion_{index}",
                     use_container_width=True
                 ):
                     st.session_state.pending_prompt = suggestion
                     st.rerun()
 
-    for i, message in enumerate(st.session_state.messages):
-        with st.chat_message(
-            "user" if message["role"] == "user" else "assistant"
-        ):
+    # Chat messages
+
+    for index, message in enumerate(
+        st.session_state.messages
+    ):
+
+        with st.chat_message(message["role"]):
+
             st.markdown(message["content"])
 
             if message["role"] == "assistant":
-                read_aloud(message["content"], f"mainchat_{i}")
 
-    uploaded = st.file_uploader(
-        "＋ Attach an image or PDF",
-        type=["png", "jpg", "jpeg", "webp", "pdf"],
-        key=f"chat_file_{st.session_state.chat_upload_key}"
+                read_aloud(
+                    message["content"],
+                    f"chat_{index}"
+                )
+
+    # Attachments
+
+    attachment = st.file_uploader(
+        "＋ Attach Image or PDF",
+        type=[
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "pdf"
+        ],
+        key="chat_attachment"
     )
 
-    prompt = st.chat_input("Message NEXTGEN AI...")
+    # Microphone
 
-    if st.session_state.pending_prompt:
+    st.markdown("#### 🎙 Voice Input")
+
+    if hasattr(st, "audio_input"):
+
+        audio = st.audio_input(
+            "Record your message",
+            key="chat_audio"
+        )
+
+        if audio:
+
+            if st.button("Convert Voice to Text"):
+
+                try:
+
+                    with st.spinner("Transcribing voice..."):
+
+                        transcript = transcribe_audio(audio)
+
+                    if transcript:
+
+                        st.session_state.voice_prompt = transcript
+
+                        st.success(
+                            "Voice converted successfully."
+                        )
+
+                        st.code(transcript)
+
+                    else:
+                        st.warning("No speech detected.")
+
+                except Exception as exc:
+                    show_error(exc)
+
+    else:
+
+        st.info(
+            "Upgrade Streamlit to a version supporting audio_input."
+        )
+
+    prompt = st.chat_input(
+        "Message NEXTGEN AI..."
+    )
+
+    if st.session_state.get("voice_prompt"):
+
+        if st.button("Send Voice Message"):
+
+            prompt = st.session_state.voice_prompt
+
+            st.session_state.voice_prompt = ""
+
+    if st.session_state.get("pending_prompt"):
+
         prompt = st.session_state.pending_prompt
+
         st.session_state.pending_prompt = None
 
     if prompt:
-        user_content = prompt
 
-        if uploaded:
-            user_content += f"\n\n[Attached file: {uploaded.name}]"
+        user_text = prompt
 
-        add_chat_message("user", user_content)
+        add_message("user", user_text)
 
         if len(st.session_state.messages) == 1:
-            update_chat_title(st.session_state.chat_id, prompt[:40])
 
-        with st.spinner("NEXTGEN AI is thinking..."):
-            try:
-                if uploaded and uploaded.type == "application/pdf":
-                    pdf_text = read_pdf(uploaded)
+            rename_chat(
+                st.session_state.chat_id,
+                user_text[:40]
+            )
 
-                    if not pdf_text.strip():
-                        raise RuntimeError(
-                            "No readable text found in the PDF."
+        try:
+
+            with st.spinner("NEXTGEN AI is thinking..."):
+
+                if attachment:
+
+                    if attachment.type == "application/pdf":
+
+                        document = read_pdf(attachment)
+
+                        if not document.strip():
+                            raise ValueError(
+                                "PDF contains no readable text."
+                            )
+
+                        history = [
+                            {
+                                "role": "system",
+                                "content": SYSTEM_PROMPT
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"Question: {user_text}\n\n"
+                                    f"PDF content:\n{document}"
+                                )
+                            }
+                        ]
+
+                        answer = ask_ai(history, provider)
+
+                    elif attachment.type.startswith("image/"):
+
+                        answer = analyze_image(
+                            attachment,
+                            user_text
                         )
 
+                    else:
+
+                        answer = ask_single(user_text)
+
+                else:
+
                     history = [
-                        {"role": "system", "content": SYSTEM_PROMPT},
                         {
-                            "role": "user",
-                            "content": (
-                                "Use this PDF to answer the question.\n\n"
-                                f"Question: {prompt}\n\n"
-                                f"PDF content:\n{pdf_text}"
-                            )
+                            "role": "system",
+                            "content": SYSTEM_PROMPT
                         }
                     ]
-                    answer = ask_ai(history)
 
-                elif uploaded and uploaded.type.startswith("image/"):
-                    answer = analyze_image(uploaded, prompt)
-
-                else:
-                    history = [
-                        {"role": "system", "content": SYSTEM_PROMPT}
-                    ]
-
-                    for item in st.session_state.messages[:-1]:
-                        history.append(item)
-
-                    history.append({
-                        "role": "user",
-                        "content": prompt
-                    })
-
-                    answer = ask_ai(history)
-
-            except Exception as exc:
-                answer = "AI Error: " + str(exc)
-
-        add_chat_message("assistant", answer)
-        st.session_state.last_answer = answer
-        st.rerun()
-
-
-# ============================================================
-# STOCK MARKET LEARNING HUB
-# ============================================================
-
-elif page == "Stock Market":
-    hero(
-        "📈 Stock Market Learning Hub",
-        "Learn market concepts, explore charts and understand data."
-    )
-
-    st.info(
-        "Educational workspace only. This page does not provide "
-        "personalized investment instructions."
-    )
-
-    tab1, tab2, tab3 = st.tabs([
-        "📊 Market Explorer",
-        "📚 Learn",
-        "🧠 Practice Quiz"
-    ])
-
-    with tab1:
-        st.markdown("### Explore a Stock")
-
-        symbol = st.text_input(
-            "Stock Symbol",
-            value=st.session_state.market_symbol,
-            key="learning_symbol"
-        ).strip().upper()
-
-        period = st.selectbox(
-            "Chart period",
-            ["1 Month", "3 Months", "6 Months", "1 Year"]
-        )
-
-        days_map = {
-            "1 Month": 30,
-            "3 Months": 90,
-            "6 Months": 180,
-            "1 Year": 365
-        }
-
-        if st.button("Load Market Data"):
-            try:
-                quote = get_stock_quote(symbol)
-                profile = get_stock_profile(symbol)
-                candles = get_stock_candles(
-                    symbol, "D", days_map[period]
-                )
-
-                if candles.get("s") != "ok":
-                    raise RuntimeError(
-                        "Historical candle data is unavailable."
+                    history.extend(
+                        st.session_state.messages[:-1][-30:]
                     )
 
-                st.session_state.market_symbol = symbol
-                st.session_state.market_data = {
-                    "quote": quote,
-                    "profile": profile,
-                    "candles": candles
-                }
-
-            except Exception as exc:
-                safe_error(exc)
-
-        market = st.session_state.market_data
-
-        if market:
-            quote = market["quote"]
-            profile = market["profile"]
-            candles = market["candles"]
-
-            st.markdown(f"### {profile.get('name', symbol)}")
-
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric("Current Price", money(quote.get("c")))
-            c2.metric(
-                "Daily Change",
-                f"{quote.get('d', 0):.2f}",
-                f"{quote.get('dp', 0):.2f}%"
-            )
-            c3.metric("Previous Close", money(quote.get("pc")))
-
-            import pandas as pd
-
-            chart_df = pd.DataFrame({
-                "Date": pd.to_datetime(candles["t"], unit="s"),
-                "Open": candles["o"],
-                "High": candles["h"],
-                "Low": candles["l"],
-                "Close": candles["c"],
-                "Volume": candles["v"]
-            }).set_index("Date")
-
-            st.markdown("### Historical Price Chart")
-            st.line_chart(chart_df[["Close"]])
-
-            st.markdown("### Trading Volume")
-            st.bar_chart(chart_df[["Volume"]])
-
-            st.markdown("### Recent Historical Data")
-            st.dataframe(
-                chart_df.tail(15),
-                use_container_width=True
-            )
-
-            st.caption(
-                "Historical data describes the past, not future prices."
-            )
-        else:
-            st.caption("Enter a symbol and load data to explore its chart.")
-
-    with tab2:
-        st.markdown("### Learn the Stock Market")
-
-        lesson_name = st.selectbox(
-            "Choose a learning topic",
-            list(STOCK_LESSONS.keys())
-        )
-
-        st.markdown(STOCK_LESSONS[lesson_name])
-        st.divider()
-
-        st.markdown("### Ask the AI Teacher")
-
-        learning_question = st.text_area(
-            "What would you like to understand?",
-            placeholder="Explain candlestick charts with an example."
-        )
-
-        if st.button("Explain This Topic"):
-            if learning_question.strip():
-                try:
-                    with st.spinner("Preparing your lesson..."):
-                        result = ask_single(
-                            "Teach this stock market topic in a "
-                            "beginner-friendly educational way. "
-                            "Use examples and explain risks.\n\n"
-                            + learning_question
-                        )
-                    render_answer(result, "stock_learning")
-                except Exception as exc:
-                    safe_error(exc)
-
-    with tab3:
-        st.markdown("### Stock Market Basics Quiz")
-
-        questions = [
-            (
-                "What does a stock represent?",
-                [
-                    "A share of company ownership",
-                    "A bank loan",
-                    "A currency note",
-                    "A company building"
-                ],
-                0,
-                "A stock represents a share of ownership in a company."
-            ),
-            (
-                "What does volume measure?",
-                [
-                    "Company age",
-                    "Number of shares traded",
-                    "Company employees",
-                    "Market opening time"
-                ],
-                1,
-                "Volume measures how many shares traded during a period."
-            ),
-            (
-                "What does diversification mean?",
-                [
-                    "Buying only one stock",
-                    "Ignoring risk",
-                    "Spreading exposure",
-                    "Predicting prices"
-                ],
-                2,
-                "Diversification spreads exposure across investments."
-            )
-        ]
-
-        answers = []
-
-        for i, question in enumerate(questions):
-            answers.append(
-                st.radio(
-                    question[0],
-                    question[1],
-                    key=f"stock_quiz_{i}"
-                )
-            )
-
-        if st.button("Check My Answers"):
-            score = 0
-
-            for i, question in enumerate(questions):
-                selected_index = question[1].index(answers[i])
-
-                if selected_index == question[2]:
-                    score += 1
-                    st.success(f"Question {i + 1}: Correct. {question[3]}")
-                else:
-                    st.warning(
-                        f"Question {i + 1}: Correct answer: "
-                        f"{question[1][question[2]]}. {question[3]}"
+                    answer = ask_ai(
+                        history,
+                        provider
                     )
 
-            st.metric("Your Score", f"{score}/{len(questions)}")
+            add_message("assistant", answer)
 
-
-# ============================================================
-# STOCK ANALYSIS
-# ============================================================
-
-elif page == "Stock Analysis":
-    hero(
-        "🔍 AI Stock Analysis",
-        "Understand company information, news and risk factors."
-    )
-
-    st.info(
-        "Educational analysis only. Not a personalized buy/sell signal."
-    )
-
-    symbol = st.text_input(
-        "Company Stock Symbol",
-        value="AAPL",
-        key="analysis_symbol"
-    ).strip().upper()
-
-    if st.button("Run AI Stock Analysis"):
-        try:
-            with st.spinner("Collecting company information..."):
-                quote = get_stock_quote(symbol)
-                profile = get_stock_profile(symbol)
-                news = get_stock_news(symbol)
-
-            news_text = "\n".join(
-                item.get("headline", "") for item in news[:8]
-            )
-
-            prompt = f"""
-Analyze this company using only supplied information.
-
-Symbol: {symbol}
-Company: {profile.get('name', symbol)}
-Industry: {profile.get('finnhubIndustry', 'Unknown')}
-Country: {profile.get('country', 'Unknown')}
-Exchange: {profile.get('exchange', 'Unknown')}
-
-Current quote:
-Current: {quote.get('c')}
-Change: {quote.get('d')}
-Percentage change: {quote.get('dp')}
-Previous close: {quote.get('pc')}
-Day high: {quote.get('h')}
-Day low: {quote.get('l')}
-
-Recent headlines:
-{news_text}
-
-Explain:
-1. Company overview
-2. Quote data meaning
-3. Recent news context
-4. Possible business and market risks
-5. Questions a learner should research
-6. Missing information
-7. Beginner-friendly summary
-
-Do not invent financial statements or valuation ratios.
-Do not guarantee returns or issue a personalized buy/sell instruction.
-"""
-
-            with st.spinner("NEXTGEN AI is analyzing..."):
-                result = ask_single(prompt)
-
-            st.session_state.analysis_result = result
-
-            st.markdown(f"### {profile.get('name', symbol)}")
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Current Price", money(quote.get("c")))
-            c2.metric(
-                "Daily Change",
-                f"{quote.get('d', 0):.2f}",
-                f"{quote.get('dp', 0):.2f}%"
-            )
-            c3.metric("Previous Close", money(quote.get("pc")))
-
-            st.markdown("### AI Research Report")
-            render_answer(result, "stock_analysis")
-
-            if news:
-                st.markdown("### Recent Company Headlines")
-                for item in news[:5]:
-                    st.markdown(
-                        f"- **{item.get('headline', 'Untitled')}** "
-                        f"— {item.get('source', 'News source')}"
-                    )
+            st.session_state.last_answer = answer
 
         except Exception as exc:
-            safe_error(exc)
 
-    elif st.session_state.analysis_result:
-        st.markdown("### Previous Analysis")
-        render_answer(
-            st.session_state.analysis_result,
-            "stock_analysis_previous"
-        )
+            error_answer = (
+                "AI Error: " + str(exc)[:700]
+            )
+
+            add_message(
+                "assistant",
+                error_answer
+            )
+
+        st.rerun()
 
 
 # ============================================================
@@ -1480,45 +1521,56 @@ Do not guarantee returns or issue a personalized buy/sell instruction.
 # ============================================================
 
 elif page == "Vision":
+
     hero(
         "👁 AI Vision",
-        "Upload an image and ask NEXTGEN AI to understand it."
+        "Understand images using artificial intelligence."
     )
 
     image = st.file_uploader(
-        "＋ Upload Image",
+        "Upload an image",
         type=["png", "jpg", "jpeg", "webp"],
-        key="vision_upload"
+        key="vision_image"
     )
 
     question = st.text_area(
-        "What should I analyze?",
-        placeholder="Describe this image or read visible text."
+        "What should I understand?",
+        placeholder="Describe this image..."
     )
 
     if image:
-        st.image(image, caption=image.name, use_container_width=True)
+
+        st.image(
+            image,
+            use_container_width=True
+        )
 
         if st.button("Analyze Image"):
+
             try:
+
                 with st.spinner("Analyzing image..."):
+
                     result = analyze_image(
                         image,
-                        question.strip() or "Describe this image."
+                        question
                     )
 
                 st.session_state.vision_result = result
-                st.markdown("### Vision Result")
-                render_answer(result, "vision_result")
+
+                render_answer(
+                    result,
+                    "vision_answer"
+                )
 
             except Exception as exc:
-                safe_error(exc)
+                show_error(exc)
 
     elif st.session_state.vision_result:
-        st.markdown("### Previous Vision Result")
+
         render_answer(
             st.session_state.vision_result,
-            "vision_previous"
+            "old_vision"
         )
 
 
@@ -1527,137 +1579,126 @@ elif page == "Vision":
 # ============================================================
 
 elif page == "Creative Studio":
+
     hero(
         "🎨 Creative Studio",
-        "Create image prompts and generate images."
+        "Create original AI images."
     )
 
-    tab1, tab2 = st.tabs(["Image Creator", "Prompt Studio"])
+    subject = st.text_area(
+        "Describe your image",
+        placeholder="A futuristic cinematic city..."
+    )
 
-    with tab1:
-        subject = st.text_input(
-            "What do you want to create?",
-            placeholder="A futuristic city at sunset"
-        )
+    c1, c2 = st.columns(2)
+
+    with c1:
 
         style = st.selectbox(
             "Art Style",
             [
-                "Photorealistic", "Anime", "Cartoon", "3D Animation",
-                "Cinematic", "Watercolor", "Oil Painting",
-                "Digital Art", "Fantasy", "Cyberpunk", "Minimalist",
-                "Comic Book", "Pixel Art", "Sketch", "Surrealism",
-                "Paper Cut Art", "Clay Art", "Low Poly 3D",
-                "Vintage Poster", "Neon Art"
+                "Photorealistic",
+                "Anime",
+                "3D Animation",
+                "Cinematic",
+                "Digital Art",
+                "Fantasy",
+                "Cyberpunk",
+                "Cartoon",
+                "Watercolor",
+                "Minimalist"
             ]
         )
 
         ratio = st.selectbox(
             "Aspect Ratio",
             [
-                "1:1 Square",
-                "9:16 Portrait",
-                "16:9 Landscape",
-                "4:5 Portrait",
-                "3:2 Landscape"
+                "1:1",
+                "9:16",
+                "16:9",
+                "4:5",
+                "3:2"
             ]
         )
+
+    with c2:
 
         lighting = st.selectbox(
             "Lighting",
             [
-                "Cinematic lighting",
-                "Golden hour",
-                "Soft natural light",
-                "Neon lighting",
-                "Studio lighting",
-                "Dramatic shadows"
+                "Cinematic",
+                "Golden Hour",
+                "Neon",
+                "Studio",
+                "Natural",
+                "Dramatic"
             ]
         )
 
         quality = st.selectbox(
-            "Detail",
+            "Quality",
             [
-                "Highly detailed",
-                "Clean and simple",
-                "Ultra-detailed textures",
-                "Professional composition"
+                "Highly Detailed",
+                "Professional",
+                "Clean Minimal",
+                "Ultra Detailed"
             ]
         )
 
-        extra = st.text_area(
-            "Additional details",
-            placeholder="Colors, background, mood, camera angle..."
+    extra = st.text_area(
+        "Extra details"
+    )
+
+    if st.button(
+        "Generate AI Image",
+        use_container_width=True
+    ):
+
+        if not subject.strip():
+
+            st.warning("Enter an image description.")
+
+        else:
+
+            full_prompt = f"""
+            {subject}
+
+            Style: {style}
+            Aspect ratio: {ratio}
+            Lighting: {lighting}
+            Quality: {quality}
+            Details: {extra}
+
+            Original composition, detailed artwork.
+            """
+
+            try:
+
+                with st.spinner("Creating image..."):
+
+                    result = generate_image(full_prompt)
+
+                st.session_state.last_image = result
+
+            except Exception as exc:
+
+                show_error(exc)
+
+    if st.session_state.last_image:
+
+        st.markdown("### Generated Image")
+
+        st.image(
+            st.session_state.last_image,
+            use_container_width=True
         )
 
-        if st.button("Build Image Prompt"):
-            if not subject.strip():
-                st.warning("Enter an image subject first.")
-            else:
-                st.session_state.creative_prompt = (
-                    f"{subject}. Art style: {style}. "
-                    f"Aspect ratio: {ratio}. Lighting: {lighting}. "
-                    f"Quality: {quality}. Additional details: {extra}. "
-                    "Original composition, clear subject and careful details."
-                )
-
-        if st.session_state.creative_prompt:
-            st.markdown("### Your Generated Prompt")
-            st.code(st.session_state.creative_prompt)
-
-            if st.button("Generate Image"):
-                try:
-                    with st.spinner("Creating your image..."):
-                        image_bytes = generate_image(
-                            st.session_state.creative_prompt
-                        )
-
-                    st.session_state.last_image = image_bytes
-                    st.session_state.last_image_prompt = (
-                        st.session_state.creative_prompt
-                    )
-
-                except Exception as exc:
-                    safe_error(exc)
-
-        if st.session_state.last_image:
-            st.markdown("### Last Creation")
-            st.image(
-                st.session_state.last_image,
-                use_container_width=True
-            )
-            st.download_button(
-                "Download Last Image",
-                data=st.session_state.last_image,
-                file_name="nextgen_creation.png",
-                mime="image/png"
-            )
-
-    with tab2:
-        st.markdown("### AI Prompt Assistant")
-
-        prompt_goal = st.text_area(
-            "Describe your creative idea",
-            placeholder="A dramatic thumbnail for a science video."
+        st.download_button(
+            "Download Image",
+            data=st.session_state.last_image,
+            file_name="nextgen_image.png",
+            mime="image/png"
         )
-
-        if st.button("Improve My Prompt"):
-            if prompt_goal.strip():
-                try:
-                    with st.spinner("Improving prompt..."):
-                        improved = ask_single(
-                            "Create a detailed professional image "
-                            "generation prompt. Include subject, "
-                            "composition, lighting, background, style, "
-                            "camera perspective and visual details.\n\n"
-                            + prompt_goal
-                        )
-
-                    st.markdown("### Improved Prompt")
-                    render_answer(improved, "improved_prompt")
-
-                except Exception as exc:
-                    safe_error(exc)
 
 
 # ============================================================
@@ -1665,137 +1706,365 @@ elif page == "Creative Studio":
 # ============================================================
 
 elif page == "PDF Assistant":
+
     hero(
         "📄 PDF Assistant",
-        "Understand documents, extract information and ask questions."
+        "Read documents and ask questions."
     )
 
     pdf = st.file_uploader(
-        "＋ Upload PDF Document",
+        "Upload PDF",
         type=["pdf"],
-        key="pdf_upload"
+        key="pdf_file"
     )
 
     question = st.text_area(
-        "Ask a question about this PDF",
-        placeholder="Summarize this document or explain a chapter."
+        "Ask about your document",
+        placeholder="Summarize this PDF..."
     )
 
     if pdf and st.button("Analyze PDF"):
-        try:
-            with st.spinner("Reading PDF..."):
-                document = read_pdf(pdf)
 
-                if not document.strip():
-                    raise RuntimeError(
-                        "No readable text was found in this PDF."
+        try:
+
+            with st.spinner("Reading PDF..."):
+
+                content = read_pdf(pdf)
+
+                if not content.strip():
+                    raise ValueError(
+                        "No readable text found."
                     )
 
+                answer = ask_single(
+                    f"""
+                    Answer using the following document.
+
+                    User question:
+                    {question or "Summarize the document."}
+
+                    Document:
+                    {content}
+
+                    Do not invent information.
+                    """
+                )
+
+            st.session_state.pdf_result = answer
+
+            render_answer(
+                answer,
+                "pdf_result"
+            )
+
+        except Exception as exc:
+            show_error(exc)
+
+    if st.session_state.pdf_result and not pdf:
+
+        render_answer(
+            st.session_state.pdf_result,
+            "previous_pdf"
+        )
+
+
+# ============================================================
+# STOCK MARKET
+# ============================================================
+
+elif page == "Stock Market":
+
+    hero(
+        "📈 Stock Market Explorer",
+        "Explore company prices, historical charts and market concepts."
+    )
+
+    st.info(
+        "Educational information only. Not personalized investment advice."
+    )
+
+    symbol = st.text_input(
+        "Stock Symbol",
+        value="AAPL"
+    ).strip().upper()
+
+    period = st.selectbox(
+        "Historical Period",
+        ["1 Month", "3 Months", "6 Months", "1 Year"]
+    )
+
+    days = {
+        "1 Month": 30,
+        "3 Months": 90,
+        "6 Months": 180,
+        "1 Year": 365
+    }[period]
+
+    if st.button("Load Stock Data"):
+
+        try:
+
+            with st.spinner("Fetching market data..."):
+
+                quote = stock_quote(symbol)
+
+                profile = stock_profile(symbol)
+
+                candles = stock_candles(
+                    symbol,
+                    days
+                )
+
+                if candles.get("s") != "ok":
+
+                    raise ValueError(
+                        "Historical data unavailable."
+                    )
+
+                st.session_state.stock_result = {
+                    "quote": quote,
+                    "profile": profile,
+                    "candles": candles
+                }
+
+        except Exception as exc:
+            show_error(exc)
+
+    market = st.session_state.stock_result
+
+    if market:
+
+        quote = market["quote"]
+
+        profile = market["profile"]
+
+        candles = market["candles"]
+
+        st.markdown(
+            f"### {profile.get('name', symbol)}"
+        )
+
+        a, b, c = st.columns(3)
+
+        a.metric(
+            "Current Price",
+            f"${quote.get('c', 0):,.2f}"
+        )
+
+        b.metric(
+            "Daily Change",
+            f"{quote.get('d', 0):,.2f}"
+        )
+
+        c.metric(
+            "Change %",
+            f"{quote.get('dp', 0):,.2f}%"
+        )
+
+        import pandas as pd
+
+        dataframe = pd.DataFrame({
+            "Date": pd.to_datetime(
+                candles["t"],
+                unit="s"
+            ),
+            "Close": candles["c"],
+            "Open": candles["o"],
+            "High": candles["h"],
+            "Low": candles["l"],
+            "Volume": candles["v"]
+        })
+
+        dataframe = dataframe.set_index("Date")
+
+        st.markdown("### Price Chart")
+
+        st.line_chart(
+            dataframe[["Close"]]
+        )
+
+        st.markdown("### Volume Chart")
+
+        st.bar_chart(
+            dataframe[["Volume"]]
+        )
+
+        st.dataframe(
+            dataframe.tail(15),
+            use_container_width=True
+        )
+
+        st.caption(
+            "Historical prices do not guarantee future performance."
+        )
+
+
+# ============================================================
+# STOCK ANALYSIS
+# ============================================================
+
+elif page == "Stock Analysis":
+
+    hero(
+        "🔍 AI Stock Research",
+        "Understand company data, news and risk factors."
+    )
+
+    symbol = st.text_input(
+        "Company Symbol",
+        value="AAPL",
+        key="analysis_symbol"
+    ).strip().upper()
+
+    if st.button("Analyze Company"):
+
+        try:
+
+            with st.spinner("Collecting information..."):
+
+                quote = stock_quote(symbol)
+
+                profile = stock_profile(symbol)
+
+                news = stock_news(symbol)
+
+                headlines = "\n".join(
+                    item.get("headline", "")
+                    for item in news[:10]
+                )
+
                 prompt = f"""
-Use the document content below to answer the user's request.
+                Analyze this company educationally.
 
-User request:
-{question or "Give a clear summary of this PDF."}
+                Symbol: {symbol}
 
-Document content:
-{document}
+                Company: {profile.get('name', 'Unknown')}
 
-Rules:
-- Use the document as the main source.
-- Do not invent information missing from it.
-- Explain difficult terms simply.
-- Mention if the document does not contain the answer.
-"""
+                Industry: {profile.get('finnhubIndustry', 'Unknown')}
+
+                Country: {profile.get('country', 'Unknown')}
+
+                Current Price: {quote.get('c')}
+
+                Change: {quote.get('d')}
+
+                Change Percentage: {quote.get('dp')}
+
+                Previous Close: {quote.get('pc')}
+
+                Recent Headlines:
+                {headlines}
+
+                Explain:
+
+                1. Company overview.
+                2. Price information.
+                3. Recent news.
+                4. Possible business risks.
+                5. What a student should research.
+                6. Missing information.
+                7. Beginner summary.
+
+                Never invent financial data.
+                Do not provide guaranteed predictions.
+                """
+
+            with st.spinner("AI is researching..."):
 
                 result = ask_single(prompt)
 
-            st.session_state.pdf_result = result
-            st.markdown("### PDF Answer")
-            render_answer(result, "pdf_answer")
+            st.markdown(
+                f"### {profile.get('name', symbol)}"
+            )
+
+            st.metric(
+                "Current Price",
+                f"${quote.get('c', 0):,.2f}"
+            )
+
+            render_answer(
+                result,
+                "stock_report"
+            )
+
+            st.markdown("### Recent News Headlines")
+
+            for item in news[:7]:
+
+                st.write(
+                    "• " + item.get("headline", "News")
+                )
 
         except Exception as exc:
-            safe_error(exc)
-
-    if st.session_state.pdf_result and not pdf:
-        st.markdown("### Previous PDF Answer")
-        render_answer(st.session_state.pdf_result, "pdf_previous")
+            show_error(exc)
 
 
 # ============================================================
-# BUILD STUDIO — APP BUILDER + WEBSITE BUILDER
+# BUILD STUDIO
 # ============================================================
 
 elif page == "Build Studio":
+
     hero(
         "🛠 Build Studio",
-        "Turn your idea into a multi-file software project."
+        "Create applications and websites using AI."
     )
 
-    st.markdown("""
-    Build a website or Python app from a written brief.
-    NEXTGEN AI will create project files and package them for download.
-    """)
-
-    app_tab, web_tab, files_tab = st.tabs([
+    app_tab, website_tab, project_tab = st.tabs([
         "📱 App Builder",
         "🌐 Website Builder",
         "📁 My Project"
     ])
 
     with app_tab:
-        st.markdown("### AI App Builder")
+
+        st.markdown("### AI Application Builder")
 
         app_name = st.text_input(
-            "App Name",
-            value="my_ai_app",
-            key="app_builder_name"
+            "Application Name",
+            "my_ai_app",
+            key="app_name"
         )
 
         app_description = st.text_area(
-            "What should your app do?",
+            "Describe your application",
             height=130,
-            placeholder=(
-                "Example: Build a student productivity app with "
-                "tasks, notes, timetable, progress tracking and a "
-                "clean dark dashboard."
-            ),
-            key="app_builder_description"
+            key="app_description"
         )
 
         app_features = st.text_area(
-            "Features you want",
-            height=100,
-            placeholder=(
-                "Login screen, dashboard, notes, search, "
-                "database, charts, settings..."
-            ),
-            key="app_builder_features"
+            "Features",
+            placeholder="Dashboard, login, search, database...",
+            key="app_features"
         )
 
         app_design = st.selectbox(
-            "Design Style",
+            "Design",
             [
-                "Premium dark dashboard",
-                "Modern minimal",
-                "Light professional",
-                "Neon futuristic",
-                "Colorful and friendly"
+                "Premium Dark",
+                "Modern Minimal",
+                "Neon",
+                "Professional",
+                "Colorful"
             ],
-            key="app_builder_design"
+            key="app_design"
         )
 
         if st.button(
             "✦ Build My App",
-            key="build_app_button",
             use_container_width=True
         ):
+
             if not app_description.strip():
-                st.warning("First describe the app you want to build.")
+
+                st.warning("Describe your app first.")
+
             else:
+
                 try:
-                    with st.spinner(
-                        "NEXTGEN AI is planning and building your app..."
-                    ):
+
+                    with st.spinner("Building application..."):
+
                         project = build_project(
                             "App",
                             app_name,
@@ -1805,71 +2074,64 @@ elif page == "Build Studio":
                         )
 
                     st.session_state.project_files = project["files"]
-                    st.session_state.project_name = project["project_name"]
-                    st.session_state.project_type = "App"
+
+                    st.session_state.project_name = project["name"]
+
                     st.session_state.project_summary = project["summary"]
 
-                    st.success("App project files have been generated.")
-                    st.rerun()
+                    st.success("Project generated successfully.")
 
                 except Exception as exc:
-                    safe_error(exc)
+                    show_error(exc)
 
-    with web_tab:
+    with website_tab:
+
         st.markdown("### AI Website Builder")
 
         website_name = st.text_input(
             "Website Name",
-            value="my_website",
-            key="website_builder_name"
+            "my_website",
+            key="website_name"
         )
 
         website_description = st.text_area(
             "Describe your website",
             height=130,
-            placeholder=(
-                "Example: Create a professional stationery shop "
-                "website with homepage, product sections, contact "
-                "details, gallery and mobile responsive layout."
-            ),
-            key="website_builder_description"
+            key="website_description"
         )
 
         website_features = st.text_area(
             "Website Features",
-            height=100,
-            placeholder=(
-                "Home page, about section, product cards, "
-                "contact form, gallery, navigation..."
-            ),
-            key="website_builder_features"
+            key="website_features"
         )
 
         website_design = st.selectbox(
             "Website Design",
             [
-                "Premium modern",
-                "Dark futuristic",
-                "Minimal clean",
-                "Business professional",
-                "Creative colorful",
-                "Portfolio style"
+                "Premium Modern",
+                "Business Professional",
+                "Minimal",
+                "Dark Futuristic",
+                "Creative"
             ],
-            key="website_builder_design"
+            key="website_design"
         )
 
         if st.button(
             "✦ Build My Website",
-            key="build_website_button",
             use_container_width=True
         ):
+
             if not website_description.strip():
-                st.warning("First describe the website you want.")
+
+                st.warning("Describe your website first.")
+
             else:
+
                 try:
-                    with st.spinner(
-                        "NEXTGEN AI is creating your website files..."
-                    ):
+
+                    with st.spinner("Creating website..."):
+
                         project = build_project(
                             "Website",
                             website_name,
@@ -1879,82 +2141,74 @@ elif page == "Build Studio":
                         )
 
                     st.session_state.project_files = project["files"]
-                    st.session_state.project_name = project["project_name"]
-                    st.session_state.project_type = "Website"
+
+                    st.session_state.project_name = project["name"]
+
                     st.session_state.project_summary = project["summary"]
 
-                    st.success("Website project files have been generated.")
-                    st.rerun()
+                    st.success("Website files generated.")
 
                 except Exception as exc:
-                    safe_error(exc)
+                    show_error(exc)
 
-    with files_tab:
-        st.markdown("### Your Generated Project")
+    with project_tab:
 
         files = st.session_state.project_files
 
         if files:
+
             st.markdown(
-                f"**Project:** {st.session_state.project_name}"
-            )
-            st.markdown(
-                f"**Type:** {st.session_state.project_type}"
+                f"### {st.session_state.project_name}"
             )
 
-            if st.session_state.project_summary:
-                st.write(st.session_state.project_summary)
+            st.write(
+                st.session_state.project_summary
+            )
 
-            st.divider()
-            st.markdown("### Project Files")
-
-            selected_file = st.selectbox(
-                "Choose a file to preview",
+            selected = st.selectbox(
+                "Preview File",
                 list(files.keys())
             )
 
+            extension = selected.split(".")[-1]
+
+            language = {
+                "py": "python",
+                "html": "html",
+                "css": "css",
+                "js": "javascript",
+                "json": "json",
+                "md": "markdown"
+            }.get(extension, "text")
+
             st.code(
-                files[selected_file],
-                language=(
-                    "python" if selected_file.endswith(".py")
-                    else "html" if selected_file.endswith(".html")
-                    else "css" if selected_file.endswith(".css")
-                    else "javascript" if selected_file.endswith(".js")
-                    else "text"
-                )
+                files[selected],
+                language=language
             )
 
-            zip_bytes = create_project_zip({
-                "project_name": st.session_state.project_name,
+            project = {
+                "name": st.session_state.project_name,
                 "files": files
-            })
+            }
 
             st.download_button(
                 "⬇ Download Complete Project ZIP",
-                data=zip_bytes,
-                file_name=st.session_state.project_name + ".zip",
+                data=make_zip(project),
+                file_name=project["name"] + ".zip",
                 mime="application/zip",
                 use_container_width=True
             )
 
-            st.download_button(
-                "⬇ Download Selected File",
-                data=files[selected_file],
-                file_name=selected_file.split("/")[-1],
-                mime="text/plain",
-                key="download_selected_project_file"
-            )
-
             st.info(
-                "Before publishing, install dependencies, configure "
-                "your own API keys, test the project and deploy it "
-                "to a suitable hosting service."
+                "Install dependencies, configure API keys, "
+                "test the generated project and deploy it separately."
             )
 
         else:
+
             st.info(
-                "Your generated project will appear here. "
-                "First create an app or website."
+                "Build an app or website first. "
+                "Your project files will appear here."
             )
 
 
@@ -1963,69 +2217,83 @@ elif page == "Build Studio":
 # ============================================================
 
 elif page == "Settings":
+
     hero(
         "⚙ Settings",
-        "Manage your API configuration and workspace information."
+        "Manage your AI workspace."
     )
 
-    st.markdown("### API Configuration")
+    st.markdown("### API Connections")
 
-    st.write(
-        "Gemini API key:",
-        "Available" if GEMINI_KEY else "Not configured"
-    )
-    st.write(
-        "Groq API key:",
-        "Available" if GROQ_KEY else "Not configured"
-    )
-    st.write(
-        "Finnhub API key:",
-        "Available" if FINNHUB_KEY else "Not configured"
-    )
-    st.write(
-        "Cloudflare image API:",
-        (
-            "Available"
-            if CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN
-            else "Not configured"
+    services = {
+        "Groq": GROQ_KEY,
+        "Gemini": GEMINI_KEY,
+        "OpenAI": OPENAI_KEY,
+        "Claude": ANTHROPIC_KEY,
+        "Finnhub": FINNHUB_KEY,
+        "Cloudflare": CLOUDFLARE_API_TOKEN,
+        "Tavily": TAVILY_KEY
+    }
+
+    for name, key in services.items():
+
+        status = "Connected key available" if key else "Not configured"
+
+        st.write(
+            f"**{name}:** {status}"
         )
-    )
 
     st.divider()
-    st.markdown("### Model Configuration")
 
-    st.write("Gemini model:", GEMINI_MODEL)
-    st.write("Groq model:", GROQ_MODEL)
-    st.write("Image model:", IMAGE_MODEL)
+    st.markdown("### Model Information")
+
+    st.write("Groq:", GROQ_MODEL)
+
+    st.write("Gemini:", GEMINI_MODEL)
+
+    st.write("OpenAI:", OPENAI_MODEL)
+
+    st.write("Claude:", ANTHROPIC_MODEL)
 
     st.divider()
+
     st.markdown("### Workspace")
 
     st.write("Application:", APP_NAME)
+
     st.write("Database:", "SQLite")
-    st.write("Chat history:", "Saved locally in the database")
+
+    st.write("History:", "Locally stored")
 
     st.caption(
-        "API keys are loaded from environment variables or your .env file. "
-        "Never share your API keys publicly."
+        "API keys are loaded from Streamlit Secrets or environment variables."
+    )
+
+    st.warning(
+        "Never share your API keys or publish them in source code."
     )
 
     st.divider()
 
-    st.markdown("### Chat Management")
+    if st.button("＋ Create New Chat"):
 
-    if st.button("＋ Start a New Chat"):
-        new_chat()
+        start_new_chat()
+
         st.rerun()
 
+    st.markdown("### Delete Current Chat")
 
-# ============================================================
-# FALLBACK
-# ============================================================
+    if st.button("Delete This Chat"):
 
-else:
-    st.session_state.page = "AI Chat"
-    st.rerun()
+        remove_chat(st.session_state.chat_id)
+
+        st.session_state.chat_id = new_chat()
+
+        st.session_state.messages = []
+
+        st.session_state.page = "AI Chat"
+
+        st.rerun()
 
 
 # ============================================================
@@ -2034,6 +2302,18 @@ else:
 
 st.divider()
 
-st.caption(
-    "✦ NEXTGEN AI • Built for learning, creativity and exploration."
+st.markdown(
+    """
+    <div style="
+        text-align:center;
+        color:#858da0;
+        padding:15px;
+    ">
+        ✦ NEXTGEN AI<br>
+        Your Personal Intelligent Workspace
+        <br>
+        Built for learning, creativity and innovation.
+    </div>
+    """,
+    unsafe_allow_html=True
 )

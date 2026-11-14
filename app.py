@@ -1521,61 +1521,10 @@ elif page == "AI Chat":
             st.session_state.chat_id
         )
 
-   # ================= SMART WEB SEARCH CONTROL =================
-
-def smart_web_search(query):
-    """Automatically search only when live/current information is needed."""
-
-    decision_prompt = f"""
-    Does this query require live web information?
-    Return only YES or NO.
-
-    YES: latest news, current facts, live prices, stock market,
-    weather, current government positions, recent events.
-    NO: coding, maths, writing, translation, general explanations.
-
-    Query: {query}
-    """
-
-    try:
-        decision = call_ai(decision_prompt).strip().upper()
-        if "YES" not in decision:
-            return ""
-
-        api_key = st.secrets["TAVILY_API_KEY"]
-
-        response = requests.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": api_key,
-                "query": query,
-                "search_depth": "advanced",
-                "max_results": 5,
-                "include_answer": True
-            },
-            timeout=20
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        results = [
-            f"Web summary: {data.get('answer', '')}"
-        ]
-
-        for item in data.get("results", []):
-            results.append(
-                f"Title: {item.get('title', '')}\n"
-                f"URL: {item.get('url', '')}\n"
-                f"Content: {item.get('content', '')}"
-            )
-
-        return "\n\n".join(results)
-
-    except Exception:
-        return ""
     # Display messages
-    for index, (role, content) in enumerate(st.session_state.messages):
-
+    for index, (role, content) in enumerate(
+        st.session_state.messages
+    ):
         with st.chat_message(role):
             st.markdown(content)
 
@@ -1591,7 +1540,6 @@ def smart_web_search(query):
         )
 
         with live_col:
-
             if CF_LIVE_URL:
                 st.link_button(
                     "◉ Live",
@@ -1607,7 +1555,6 @@ def smart_web_search(query):
                 )
 
         with input_col:
-
             try:
                 submitted = st.chat_input(
                     "Message NEXTGEN AI...",
@@ -1620,7 +1567,7 @@ def smart_web_search(query):
             except TypeError:
                 st.warning(
                     "Update Streamlit to a recent version to use "
-                    "audio and file attachments in the chat input."
+                    "audio and file attachments."
                 )
                 submitted = st.chat_input(
                     "Message NEXTGEN AI...",
@@ -1630,21 +1577,23 @@ def smart_web_search(query):
     # Regenerate last answer
     if st.session_state.pending_regenerate:
         st.session_state.pending_regenerate = False
-
         prompt = st.session_state.last_user_prompt
 
         if prompt:
             api_messages = [
                 {"role": role, "content": content}
-                for role, content in st.session_state.messages[:-1][-20:]
+                for role, content
+                in st.session_state.messages[:-1][-20:]
             ]
 
             with st.spinner("Generating a new response..."):
                 try:
                     new_answer = ask_ai(api_messages)
 
-                    if st.session_state.messages and \
-                       st.session_state.messages[-1][0] == "assistant":
+                    if (
+                        st.session_state.messages
+                        and st.session_state.messages[-1][0] == "assistant"
+                    ):
                         st.session_state.messages[-1] = (
                             "assistant", new_answer
                         )
@@ -1676,7 +1625,6 @@ def smart_web_search(query):
 
         # Read attachments
         for uploaded in submitted_files:
-
             filename = uploaded.name.lower()
 
             if filename.endswith(".txt"):
@@ -1715,7 +1663,9 @@ def smart_web_search(query):
             with st.spinner("Converting your voice to text..."):
                 try:
                     voice_text = transcribe_audio(submitted_audio)
-                    user_text = (user_text + "\n" + voice_text).strip()
+                    user_text = (
+                        user_text + "\n" + voice_text
+                    ).strip()
                 except Exception:
                     st.error("Voice transcription failed.")
 
@@ -1745,15 +1695,22 @@ def smart_web_search(query):
             ]
 
             with st.spinner("NEXTGEN AI is thinking..."):
-
                 try:
-                    if web_enabled:
-                        answer = ask_ai_with_search(
-                            api_messages,
-                            user_text
-                        )
-                    else:
-                        answer = ask_ai(api_messages)
+                    # Smart web search decides whether live data is needed
+                    web_context = smart_web_search(user_text)
+
+                    if web_context:
+                        api_messages.append({
+                            "role": "system",
+                            "content": (
+                                "Use this web search information for "
+                                "current facts. Do not invent missing "
+                                "information. Mention source URLs when useful.\n\n"
+                                + web_context
+                            )
+                        })
+
+                    answer = ask_ai(api_messages)
 
                     st.session_state.messages.append(
                         ("assistant", answer)
@@ -1775,26 +1732,116 @@ def smart_web_search(query):
     st.caption(
         "NEXTGEN AI Ready · Chat history is saved automatically."
     )
-
-
-# ============================================================
-# IMAGE STUDIO
+    # ============================================================
+# AI IMAGE STUDIO
 # ============================================================
 
-if page == "IMAGE STUDIO":
+elif page == "AI Image Studio":
 
     hero(
         "AI Image Studio",
-        "Bring your imagination to life with AI image generation."
+        "Create stunning AI images in your favourite style."
     )
 
-    st.markdown("### Describe your image")
+    st.markdown("### ✦ Describe your image")
 
     prompt = st.text_area(
         "Image prompt",
-        placeholder="Describe the image you want to create...",
-        height=90,
+        placeholder="Describe exactly what you want to create...",
+        height=110,
         label_visibility="collapsed"
+    )
+
+    st.markdown("### 🎨 Choose your style")
+
+    style_options = {
+        "Cinematic": "cinematic lighting, dramatic composition, movie scene",
+        "Photorealistic": "ultra photorealistic, natural details, realistic lighting",
+        "Anime": "high quality anime art, detailed anime illustration",
+        "3D Render": "high quality 3D render, realistic materials",
+        "Pixar-like 3D": "stylized expressive 3D animated film aesthetic",
+        "Fantasy": "magical fantasy atmosphere, detailed fantasy artwork",
+        "Cyberpunk": "neon cyberpunk city, futuristic atmosphere",
+        "GTA Style": "stylized open world video game artwork",
+        "Comic Book": "bold comic book illustration, dynamic ink lines",
+        "Watercolor": "soft watercolor painting, artistic brush texture",
+        "Oil Painting": "classic detailed oil painting",
+        "Minimalist": "clean minimalist design, simple composition",
+        "Portrait": "professional portrait photography",
+        "Product Photography": "premium studio product photography",
+        "Dark Moody": "dark atmospheric lighting, moody dramatic tones"
+    }
+
+    selected_style = st.selectbox(
+        "Art style",
+        list(style_options.keys())
+    )
+
+    st.markdown("### 📐 Aspect ratio")
+
+    ratio_options = {
+        "1:1 — Square": "1:1",
+        "9:16 — Reels / Shorts": "9:16",
+        "16:9 — YouTube / Landscape": "16:9",
+        "4:5 — Instagram Portrait": "4:5",
+        "3:4 — Portrait": "3:4",
+        "4:3 — Landscape": "4:3",
+        "3:2 — Photography": "3:2",
+        "2:3 — Poster": "2:3",
+        "21:9 — Ultrawide": "21:9"
+    }
+
+    selected_ratio = st.selectbox(
+        "Image dimensions",
+        list(ratio_options.keys()),
+        index=0
+    )
+
+    st.markdown("### ⚙️ Advanced settings")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        quality = st.selectbox(
+            "Quality",
+            ["Standard", "High", "Ultra"]
+        )
+
+        lighting = st.selectbox(
+            "Lighting",
+            [
+                "Automatic",
+                "Golden Hour",
+                "Studio Lighting",
+                "Soft Natural Light",
+                "Neon Lighting",
+                "Dramatic Lighting",
+                "Sunset"
+            ]
+        )
+
+    with col2:
+        detail = st.selectbox(
+            "Detail level",
+            ["Balanced", "Highly Detailed", "Artistic", "Simple"]
+        )
+
+        mood = st.selectbox(
+            "Mood",
+            [
+                "Automatic",
+                "Happy",
+                "Mysterious",
+                "Dark",
+                "Dreamy",
+                "Epic",
+                "Peaceful"
+            ]
+        )
+
+    negative_prompt = st.text_input(
+        "Negative prompt (optional)",
+        placeholder="e.g. blurry, low quality, distorted"
     )
 
     with st.expander("＋ Add reference image", expanded=False):
@@ -1811,22 +1858,38 @@ if page == "IMAGE STUDIO":
                 caption="Selected reference image",
                 width=220
             )
-            st.caption(
-                "Reference preview is available. "
-                "Reference-based editing is not enabled."
-            )
 
-    if st.button("✦ Generate Image", use_container_width=True):
+    st.divider()
+
+    if st.button(
+        "✦ Generate Image",
+        use_container_width=True,
+        type="primary"
+    ):
 
         if not prompt.strip():
             st.warning("Please write an image prompt.")
 
         else:
+            final_prompt = f"""
+            {prompt}
+
+            Art style: {style_options[selected_style]}.
+            Aspect ratio: {ratio_options[selected_ratio]}.
+            Quality: {quality}.
+            Lighting: {lighting}.
+            Detail: {detail}.
+            Mood: {mood}.
+            Avoid: {negative_prompt}.
+            """
+
             with st.spinner("Creating your image..."):
                 try:
-                    result = cloudflare_image(prompt)
+                    result = cloudflare_image(final_prompt)
 
-                    save_creation(prompt, result)
+                    save_creation(final_prompt, result)
+
+                    st.success("Your image has been created!")
 
                     st.image(
                         result,
@@ -1837,18 +1900,14 @@ if page == "IMAGE STUDIO":
                         "↓ Download Image",
                         data=result,
                         file_name="nextgen_image.png",
-                        mime="image/png"
+                        mime="image/png",
+                        use_container_width=True
                     )
 
-                    st.success("Your creation has been saved.")
-
-                except Exception:
+                except Exception as exc:
                     st.error(
-                        "Image generation failed. "
-                        "Please check the Cloudflare configuration."
+                        f"Image generation failed: {exc}"
                     )
-
-
 # ============================================================
 # TOOL CENTER
 # ============================================================

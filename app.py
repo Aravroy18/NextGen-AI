@@ -1521,20 +1521,7 @@ elif page == "AI Chat":
             st.session_state.chat_id
         )
 
-    # Web search control
-    search_col, info_col = st.columns([1, 2])
-
-    
-        st.session_state.web_search_enabled = web_enabled
-
-    with info_col:
-        if web_enabled and TAVILY_KEY:
-            st.caption("Live web search is enabled.")
-        elif web_enabled:
-            st.caption("Add TAVILY_API_KEY to enable live web search.")
-        else:
-            st.caption("Normal AI chat mode.")
-
+   
     # Display messages
     for index, (role, content) in enumerate(st.session_state.messages):
 

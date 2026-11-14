@@ -1513,25 +1513,48 @@ if page == "Dashboard":
 
 elif page == "AI Chat":
 
+    # ================= CHAT DESIGN =================
+
+    st.markdown("""
+    <style>
+    [data-testid="stChatMessage"] p,
+    [data-testid="stChatMessage"] li,
+    [data-testid="stChatMessage"] div,
+    [data-testid="stMarkdownContainer"] p {
+        color: #FFFFFF !important;
+    }
+
+    [data-testid="stChatMessage"] {
+        color: #FFFFFF !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("## ✦ AI Chat")
-    st.caption("Ask anything. Your assistant is ready.")
+    st.caption("Your intelligent AI assistant is ready.")
+
+    # ================= LOAD CHAT HISTORY =================
 
     if not st.session_state.messages:
         st.session_state.messages = get_messages(
             st.session_state.chat_id
         )
 
-    # Display messages
+    # ================= DISPLAY MESSAGES =================
+
     for index, (role, content) in enumerate(
         st.session_state.messages
     ):
+
         with st.chat_message(role):
+
             st.markdown(content)
 
             if role == "assistant":
                 response_controls(content, index)
 
-    # Chat input
+    # ================= CHAT INPUT =================
+
     with st.container(border=True):
 
         live_col, input_col = st.columns(
@@ -1540,62 +1563,88 @@ elif page == "AI Chat":
         )
 
         with live_col:
+
             if CF_LIVE_URL:
+
                 st.link_button(
                     "◉ Live",
                     CF_LIVE_URL,
                     use_container_width=True
                 )
+
             else:
+
                 st.button(
                     "◉ Live",
                     disabled=True,
-                    help="Live voice service URL is not configured.",
+                    help="Live voice service is not configured.",
                     use_container_width=True
                 )
 
         with input_col:
+
             try:
+
                 submitted = st.chat_input(
                     "Message NEXTGEN AI...",
                     key="nextgen_chat_input",
                     accept_file=True,
                     accept_audio=True,
-                    file_type=["pdf", "txt", "png", "jpg", "jpeg"],
+                    file_type=[
+                        "pdf",
+                        "txt",
+                        "png",
+                        "jpg",
+                        "jpeg"
+                    ],
                     max_upload_size=20
                 )
+
             except TypeError:
-                st.warning(
-                    "Update Streamlit to a recent version to use "
-                    "audio and file attachments."
-                )
+
                 submitted = st.chat_input(
                     "Message NEXTGEN AI...",
                     key="nextgen_chat_input_fallback"
                 )
 
-    # Regenerate last answer
+    # ================= REGENERATE ANSWER =================
+
     if st.session_state.pending_regenerate:
+
         st.session_state.pending_regenerate = False
+
         prompt = st.session_state.last_user_prompt
 
         if prompt:
+
             api_messages = [
                 {"role": role, "content": content}
                 for role, content
                 in st.session_state.messages[:-1][-20:]
             ]
 
-            with st.spinner("Generating a new response..."):
+            with st.spinner("NEXTGEN AI is thinking..."):
+
                 try:
+
                     new_answer = ask_ai(api_messages)
+
+                    if not new_answer or not str(new_answer).strip():
+                        raise RuntimeError(
+                            "AI returned an empty response."
+                        )
+
+                    new_answer = str(new_answer).strip()
 
                     if (
                         st.session_state.messages
-                        and st.session_state.messages[-1][0] == "assistant"
+                        and st.session_state.messages[-1][0]
+                        == "assistant"
                     ):
+
                         st.session_state.messages[-1] = (
-                            "assistant", new_answer
+                            "assistant",
+                            new_answer
                         )
 
                     update_last_assistant(
@@ -1604,10 +1653,16 @@ elif page == "AI Chat":
                     )
 
                     st.session_state.last_assistant_answer = new_answer
+
                     st.rerun()
 
-                except Exception:
-                    st.error("Could not regenerate the response.")
+                except Exception as exc:
+
+                    st.error(
+                        f"Regeneration failed: {exc}"
+                    )
+
+    # ================= PROCESS NEW MESSAGE =================
 
     if submitted is not None:
 
@@ -1615,26 +1670,50 @@ elif page == "AI Chat":
         file_context = ""
 
         if isinstance(submitted, str):
+
             user_text = submitted
             submitted_files = []
             submitted_audio = None
-        else:
-            user_text = getattr(submitted, "text", "") or ""
-            submitted_files = getattr(submitted, "files", []) or []
-            submitted_audio = getattr(submitted, "audio", None)
 
-        # Read attachments
+        else:
+
+            user_text = getattr(
+                submitted,
+                "text",
+                ""
+            ) or ""
+
+            submitted_files = getattr(
+                submitted,
+                "files",
+                []
+            ) or []
+
+            submitted_audio = getattr(
+                submitted,
+                "audio",
+                None
+            )
+
+        # ================= READ ATTACHMENTS =================
+
         for uploaded in submitted_files:
+
             filename = uploaded.name.lower()
 
             if filename.endswith(".txt"):
+
                 file_context += "\n\n[Attached text]\n"
+
                 file_context += uploaded.getvalue().decode(
-                    "utf-8", errors="ignore"
+                    "utf-8",
+                    errors="ignore"
                 )[:20000]
 
             elif filename.endswith(".pdf"):
+
                 try:
+
                     from pypdf import PdfReader
 
                     reader = PdfReader(
@@ -1642,38 +1721,59 @@ elif page == "AI Chat":
                     )
 
                     extracted = "\n".join(
-                        p.extract_text() or ""
-                        for p in reader.pages
+                        page.extract_text() or ""
+                        for page in reader.pages
                     )
 
                     file_context += "\n\n[Attached PDF]\n"
                     file_context += extracted[:25000]
 
-                except Exception:
-                    st.warning(f"Could not read {uploaded.name}.")
+                except Exception as exc:
+
+                    st.warning(
+                        f"Could not read {uploaded.name}: {exc}"
+                    )
 
             elif filename.endswith((".png", ".jpg", ".jpeg")):
+
                 st.info(
                     f"{uploaded.name} attached. "
                     "Image understanding is not enabled in this build."
                 )
 
-        # Voice transcription
+        # ================= VOICE TRANSCRIPTION =================
+
         if submitted_audio is not None:
-            with st.spinner("Converting your voice to text..."):
+
+            with st.spinner("Transcribing your voice..."):
+
                 try:
-                    voice_text = transcribe_audio(submitted_audio)
+
+                    voice_text = transcribe_audio(
+                        submitted_audio
+                    )
+
                     user_text = (
                         user_text + "\n" + voice_text
                     ).strip()
-                except Exception:
-                    st.error("Voice transcription failed.")
 
-        user_text = (user_text + file_context).strip()
+                except Exception as exc:
+
+                    st.error(
+                        f"Voice transcription failed: {exc}"
+                    )
+
+        user_text = (
+            user_text + file_context
+        ).strip()
+
+        # ================= SAVE USER MESSAGE =================
 
         if user_text:
 
-            st.session_state.messages.append(("user", user_text))
+            st.session_state.messages.append(
+                ("user", user_text)
+            )
 
             save_message(
                 st.session_state.chat_id,
@@ -1684,33 +1784,63 @@ elif page == "AI Chat":
             st.session_state.last_user_prompt = user_text
 
             if len(st.session_state.messages) == 1:
+
                 set_chat_title(
                     st.session_state.chat_id,
                     user_text[:48]
                 )
 
+            # ================= PREPARE AI MESSAGES =================
+
             api_messages = [
-                {"role": role, "content": content}
-                for role, content in st.session_state.messages[-20:]
+                {
+                    "role": role,
+                    "content": content
+                }
+                for role, content
+                in st.session_state.messages[-20:]
             ]
 
+            # ================= AUTOMATIC SMART WEB SEARCH =================
+
             with st.spinner("NEXTGEN AI is thinking..."):
+
                 try:
-                    # Smart web search decides whether live data is needed
-                    web_context = smart_web_search(user_text)
+
+                    web_context = smart_web_search(
+                        user_text
+                    )
 
                     if web_context:
+
                         api_messages.append({
                             "role": "system",
                             "content": (
-                                "Use this web search information for "
-                                "current facts. Do not invent missing "
-                                "information. Mention source URLs when useful.\n\n"
+                                "LIVE WEB SEARCH RESULTS:\n\n"
                                 + web_context
+                                + "\n\n"
+                                "Use these results for current facts. "
+                                "Do not invent missing information. "
+                                "Mention source URLs when useful."
                             )
                         })
 
+                    # ================= GROK PRIMARY =================
+                    # ================= GEMINI BACKUP =================
+                    # ask_ai() must contain this provider fallback.
+
                     answer = ask_ai(api_messages)
+
+                    if not answer or not str(answer).strip():
+
+                        raise RuntimeError(
+                            "AI returned an empty response. "
+                            "Check Grok and Gemini API configuration."
+                        )
+
+                    answer = str(answer).strip()
+
+                    # ================= SAVE AI ANSWER =================
 
                     st.session_state.messages.append(
                         ("assistant", answer)
@@ -1725,12 +1855,18 @@ elif page == "AI Chat":
                     st.session_state.last_assistant_answer = answer
 
                 except Exception as exc:
-                    st.error(str(exc))
+
+                    st.error(
+                        f"AI response failed: {exc}"
+                    )
 
             st.rerun()
 
+    # ================= FOOTER =================
+
     st.caption(
-        "NEXTGEN AI Ready · Chat history is saved automatically."
+        "NEXTGEN AI Ready · Grok Primary · Gemini Backup · Smart Web Search"
+    )
     )
     # ============================================================
 # AI IMAGE STUDIO

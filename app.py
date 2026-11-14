@@ -1521,25 +1521,58 @@ elif page == "AI Chat":
             st.session_state.chat_id
         )
 
-    # Web search control
-    search_col, info_col = st.columns([1, 2])
+   # ================= SMART WEB SEARCH CONTROL =================
 
-    with search_col:
-        web_enabled = st.toggle(
-            "⌕ Web Search",
-            value=st.session_state.web_search_enabled,
-            key="web_search_toggle"
+def smart_web_search(query):
+    """Automatically search only when live/current information is needed."""
+
+    decision_prompt = f"""
+    Does this query require live web information?
+    Return only YES or NO.
+
+    YES: latest news, current facts, live prices, stock market,
+    weather, current government positions, recent events.
+    NO: coding, maths, writing, translation, general explanations.
+
+    Query: {query}
+    """
+
+    try:
+        decision = call_ai(decision_prompt).strip().upper()
+        if "YES" not in decision:
+            return ""
+
+        api_key = st.secrets["TAVILY_API_KEY"]
+
+        response = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": api_key,
+                "query": query,
+                "search_depth": "advanced",
+                "max_results": 5,
+                "include_answer": True
+            },
+            timeout=20
         )
-        st.session_state.web_search_enabled = web_enabled
+        response.raise_for_status()
+        data = response.json()
 
-    with info_col:
-        if web_enabled and TAVILY_KEY:
-            st.caption("Live web search is enabled.")
-        elif web_enabled:
-            st.caption("Add TAVILY_API_KEY to enable live web search.")
-        else:
-            st.caption("Normal AI chat mode.")
+        results = [
+            f"Web summary: {data.get('answer', '')}"
+        ]
 
+        for item in data.get("results", []):
+            results.append(
+                f"Title: {item.get('title', '')}\n"
+                f"URL: {item.get('url', '')}\n"
+                f"Content: {item.get('content', '')}"
+            )
+
+        return "\n\n".join(results)
+
+    except Exception:
+        return ""
     # Display messages
     for index, (role, content) in enumerate(st.session_state.messages):
 

@@ -565,6 +565,82 @@ def metric(label, value, note):
     """, unsafe_allow_html=True)
 
 
+def render_answer_controls(answer_text, control_key):
+    """Render copy and browser read-aloud controls for one AI-generated answer."""
+    if not answer_text:
+        return
+
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(control_key))
+    encoded_text = base64.b64encode(
+        str(answer_text).encode("utf-8")
+    ).decode("ascii")
+
+    components.html(f"""
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:Arial,sans-serif;">
+      <button id="ng-copy-{safe_key}" style="border:1px solid #59658a;border-radius:9px;padding:8px 12px;background:#202b48;color:white;font-weight:700;cursor:pointer;">📋 Copy</button>
+      <button id="ng-speak-{safe_key}" style="border:1px solid #59658a;border-radius:9px;padding:8px 12px;background:#252f50;color:white;font-weight:700;cursor:pointer;">🔊 Read aloud</button>
+      <button id="ng-stop-{safe_key}" style="border:1px solid #59658a;border-radius:9px;padding:8px 12px;background:#171f35;color:white;cursor:pointer;">Stop</button>
+      <span id="ng-status-{safe_key}" style="color:#aebbd7;font-size:12px;">Copy or listen to this answer</span>
+    </div>
+    <script>
+    (() => {{
+      const answerText = new TextDecoder().decode(
+        Uint8Array.from(atob('{encoded_text}'), c => c.charCodeAt(0))
+      );
+      const copyBtn = document.getElementById('ng-copy-{safe_key}');
+      const speakBtn = document.getElementById('ng-speak-{safe_key}');
+      const stopBtn = document.getElementById('ng-stop-{safe_key}');
+      const status = document.getElementById('ng-status-{safe_key}');
+
+      copyBtn.onclick = async () => {{
+        try {{
+          if (navigator.clipboard && window.isSecureContext) {{
+            await navigator.clipboard.writeText(answerText);
+          }} else {{
+            const area = document.createElement('textarea');
+            area.value = answerText;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            const copied = document.execCommand('copy');
+            area.remove();
+            if (!copied) throw new Error('Copy was blocked');
+          }}
+          status.textContent = 'Copied';
+        }} catch (error) {{
+          status.textContent = 'Copy was blocked by the browser';
+        }}
+      }};
+
+      speakBtn.onclick = () => {{
+        if (!('speechSynthesis' in window)) {{
+          status.textContent = 'Speech is not supported in this browser';
+          return;
+        }}
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(answerText);
+        utterance.rate = 0.96;
+        utterance.pitch = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => /hi-IN|en-IN/i.test(v.lang))
+          || voices.find(v => /hi|en/i.test(v.lang));
+        if (preferred) utterance.voice = preferred;
+        utterance.onstart = () => status.textContent = 'Speaking…';
+        utterance.onend = () => status.textContent = 'Finished';
+        utterance.onerror = () => status.textContent = 'Voice playback failed';
+        window.speechSynthesis.speak(utterance);
+      }};
+
+      stopBtn.onclick = () => {{
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        status.textContent = 'Stopped';
+      }};
+    }})();
+    </script>
+    """, height=54)
+
+
 # ---------------- AI PROVIDERS ----------------
 
 def groq_request(messages):
@@ -837,45 +913,47 @@ def needs_web_search(text):
 
 
 def ai_should_search_web(user_text):
-    # First check whether the question may need fresh web information.
-    if not needs_web_search(user_text):
-        return False
-
+    """Ask the configured AI model whether this particular question needs live web data."""
     prompt = f"""
-Decide whether this user question needs a live internet search.
+You are the web-search decision module for NEXTGEN AI.
 
-Return ONLY valid JSON in this exact format:
+Decide whether answering the user's question accurately requires fresh,
+current, changing, local, or externally verifiable information from the internet.
+
+Return ONLY one JSON object, with no markdown:
 {{"search": true}}
 or
 {{"search": false}}
 
-Use true for current news, recent updates, today's information,
-live information, current prices, recent releases, or facts that
-may have changed.
+Choose true when the user asks for current/latest/today information, news,
+recent events or releases, live prices or scores, current opening hours,
+current policies, current versions, current availability, or facts likely
+to have changed since the model's training data. Also choose true when the
+user explicitly asks you to search, look something up, verify a claim, or
+provide sources.
 
-Use false for ordinary explanations, general knowledge,
-creative writing, and stable facts.
+Choose false for stable general knowledge, ordinary explanations, maths,
+schoolwork that does not need current facts, translation, creative writing,
+and tasks based entirely on text or files the user supplied.
+
+If uncertain whether facts may have changed, choose true.
 
 USER QUESTION:
 {user_text}
 """
-
     try:
         decision, _ = ask_ai([
             {"role": "user", "content": prompt}
         ])
-
         match = re.search(r"\{[\s\S]*?\}", decision)
-
         if match:
             parsed = json.loads(match.group(0))
             if isinstance(parsed.get("search"), bool):
                 return parsed["search"]
-
     except Exception:
         pass
 
-    # If AI classification fails, use the existing keyword decision.
+    # Fallback if the classifier cannot return valid JSON.
     return needs_web_search(user_text)
 
 
@@ -1605,6 +1683,9 @@ elif page == "AI Chat":
     for message_index, (role, content) in enumerate(st.session_state.messages):
         with st.chat_message(role):
             st.markdown(content)
+            if role == "assistant":
+                render_answer_controls(content, f"chat_{message_index}")
+
         if role == "assistant":
             action_cols = st.columns(5)
             for action_index, (action_label, action_prompt) in enumerate(followup_actions):
@@ -1612,38 +1693,6 @@ elif page == "AI Chat":
                     if st.button(action_label, key=f"answer_action_{message_index}_{action_index}", use_container_width=True):
                         st.session_state.quick_prompt = action_prompt
                         st.rerun()
-
-    if st.session_state.messages:
-        latest_assistant = next((m[1] for m in reversed(st.session_state.messages) if m[0] == "assistant"), "")
-        if latest_assistant:
-            speech_b64 = base64.b64encode(latest_assistant[:12000].encode("utf-8")).decode("ascii")
-            components.html(f"""
-            <div style="display:flex;gap:8px;align-items:center;font-family:Arial,sans-serif;">
-              <button id="ng-speak" style="border:1px solid #59658a;border-radius:10px;padding:9px 14px;background:#252f50;color:white;font-weight:700;cursor:pointer;">🔊 Read latest answer aloud</button>
-              <button id="ng-stop" style="border:1px solid #59658a;border-radius:10px;padding:9px 14px;background:#171f35;color:white;cursor:pointer;">Stop</button>
-              <span id="ng-voice-status" style="color:#aebbd7;font-size:12px;">Uses voices installed in this device/browser</span>
-            </div>
-            <script>
-            const textToSpeak = new TextDecoder().decode(Uint8Array.from(atob('{speech_b64}'), c => c.charCodeAt(0)));
-            const speakBtn = document.getElementById('ng-speak');
-            const stopBtn = document.getElementById('ng-stop');
-            const status = document.getElementById('ng-voice-status');
-            speakBtn.onclick = () => {{
-              if (!('speechSynthesis' in window)) {{ status.textContent = 'Speech is not supported in this browser.'; return; }}
-              window.speechSynthesis.cancel();
-              const utterance = new SpeechSynthesisUtterance(textToSpeak);
-              utterance.rate = 0.96; utterance.pitch = 1.0;
-              const voices = window.speechSynthesis.getVoices();
-              const preferred = voices.find(v => /en-IN|hi-IN/i.test(v.lang)) || voices.find(v => /en/i.test(v.lang));
-              if (preferred) utterance.voice = preferred;
-              utterance.onstart = () => status.textContent = 'Speaking…';
-              utterance.onend = () => status.textContent = 'Finished';
-              utterance.onerror = () => status.textContent = 'Voice playback failed.';
-              window.speechSynthesis.speak(utterance);
-            }};
-            stopBtn.onclick = () => {{ window.speechSynthesis.cancel(); status.textContent = 'Stopped'; }};
-            </script>
-            """, height=55)
 
     with st.container(border=True):
 
@@ -1761,12 +1810,10 @@ elif page == "AI Chat":
                 )
 
             with st.spinner("NEXTGEN AI is thinking..."):
-
-                
-
-                                    try:
+                try:
                     search_results = []
 
+                    # AI decides whether fresh web information is needed.
                     if ai_should_search_web(user_text):
                         try:
                             search_results = smart_web_search(
@@ -1775,8 +1822,8 @@ elif page == "AI Chat":
                             )
                         except Exception as search_error:
                             st.warning(
-                                "Web search failed. "
-                                "I will answer using the configured AI model. "
+                                "Web search failed. I will answer using the "
+                                "configured AI model only. "
                                 + str(search_error)[:200]
                             )
 
@@ -1795,29 +1842,12 @@ elif page == "AI Chat":
                         )
 
                     st.session_state.messages.append(("assistant", answer))
-
                     save_message(
                         st.session_state.chat_id,
                         USER_ID,
                         "assistant",
                         answer
                     )
-
-                    st.session_state.last_provider = provider
-
-                except Exception as e:
-                    st.error(str(e))
-
-            st.rerun()
-                    st.session_state.messages.append(("assistant", answer))
-
-                    save_message(
-                        st.session_state.chat_id,
-                        USER_ID,
-                        "assistant",
-                        answer
-                    )
-
                     st.session_state.last_provider = provider
 
                 except Exception as e:
@@ -1993,6 +2023,7 @@ elif page == "Website Builder":
         st.markdown("### Generated website code")
         st.caption("Generated by " + st.session_state.get("website_provider", "AI"))
         st.code(st.session_state.website_result, language="html")
+        render_answer_controls(st.session_state.website_result, "website_builder_result")
         st.download_button("↓ Download index.html", data=st.session_state.website_result.encode("utf-8"), file_name="index.html", mime="text/html", key="download_generated_website")
 
 
@@ -2028,6 +2059,7 @@ elif page == "App Builder":
         st.markdown("### Generated application")
         st.caption("Generated by " + st.session_state.get("app_builder_provider", "AI"))
         st.markdown(st.session_state.app_builder_result)
+        render_answer_controls(st.session_state.app_builder_result, "app_builder_result")
         st.download_button("↓ Download generated code as TXT", data=st.session_state.app_builder_result.encode("utf-8"), file_name="generated_app_code.txt", mime="text/plain", key="download_generated_app")
 
 
@@ -2119,6 +2151,7 @@ elif page == "Tool Center":
         )
 
         st.markdown(st.session_state.tool_result["result"])
+        render_answer_controls(st.session_state.tool_result["result"], "tool_center_result")
 
         st.caption(
             "Generated by " + st.session_state.tool_result["provider"]
@@ -2188,6 +2221,7 @@ elif page == "Stock Market":
                 try:
                     answer, provider = ask_ai([{"role": "user", "content": question}])
                     st.markdown(answer)
+                    render_answer_controls(answer, "market_lesson_answer")
                     st.caption("Learning response by " + provider)
                 except Exception as exc:
                     st.error("AI lesson unavailable: " + str(exc))
@@ -2342,6 +2376,7 @@ elif page == "Stock Market":
                     try:
                         answer, provider = ask_ai([{"role": "user", "content": prompt}])
                         st.markdown(answer)
+                        render_answer_controls(answer, "company_analysis_answer")
                         st.caption("Educational analysis by " + provider + ". Verify figures against official filings and exchange disclosures.")
                     except Exception as exc:
                         st.error("Analysis unavailable: " + str(exc))
@@ -2419,6 +2454,7 @@ elif page == "PDF Assistant":
                         }])
 
                     st.markdown(answer)
+                    render_answer_controls(answer, "pdf_answer")
                     st.caption("Generated by " + provider)
 
                 else:
@@ -2518,7 +2554,8 @@ elif page == "Settings":
         ("Gemini", GEMINI_KEY),
         ("OpenAI", OPENAI_KEY),
         ("Claude", ANTHROPIC_KEY),
-        ("Cloudflare", CF_TOKEN)
+        ("Cloudflare", CF_TOKEN),
+        ("Tavily", TAVILY_KEY)
     ]:
         if key:
             st.success(name + " API key configured.")

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# NEXTGEN AI V8
+# NEXTGEN AI V9
 # Existing visual theme + practical new features
 # ============================================================
 
@@ -762,6 +762,41 @@ def format_search_context(results):
     return "\n\n".join(lines)
 
 
+# ---------------- PUBLIC MARKET CHART DATA ----------------
+
+def fetch_public_market_history(symbol, period="1mo", interval="1d"):
+    """Fetch chart history from Yahoo Finance's public chart endpoint.
+    This endpoint is unofficial and may rate-limit or change without notice.
+    """
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        raise ValueError("Enter a ticker symbol.")
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/" + requests.utils.quote(clean_symbol)
+    response = requests.get(
+        url,
+        params={"range": period, "interval": interval, "events": "history"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=20
+    )
+    response.raise_for_status()
+    payload = response.json().get("chart", {})
+    if payload.get("error"):
+        raise RuntimeError(str(payload["error"]))
+    result = (payload.get("result") or [None])[0]
+    if not result:
+        raise RuntimeError("No market history returned for this ticker.")
+    timestamps = result.get("timestamp") or []
+    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    closes = quote.get("close") or []
+    points = []
+    for stamp, close in zip(timestamps, closes):
+        if close is not None:
+            points.append((datetime.fromtimestamp(stamp).strftime("%Y-%m-%d"), float(close)))
+    if len(points) < 2:
+        raise RuntimeError("Not enough chart data returned for this ticker.")
+    return points, result.get("meta", {})
+
+
 # ---------------- IMAGE GENERATION ----------------
 
 def cloudflare_image(prompt):
@@ -929,7 +964,18 @@ TOOL_LIBRARY = {
     ]
 }
 
-TOOL_COUNT = sum(len(v) for v in TOOL_LIBRARY.values())
+BASE_TOOL_COUNT = sum(len(v) for v in TOOL_LIBRARY.values())
+TOOL_OUTPUT_FORMATS = [
+    "Quick answer", "Step-by-step guide", "Detailed report", "Checklist",
+    "Table", "Study notes", "Presentation outline", "Practice exercise"
+]
+TOOL_LEVELS = [
+    "Beginner", "School level", "Intermediate", "Advanced",
+    "Professional", "Expert", "Research level"
+]
+# Each preset can run in 8 output formats and 7 learning/detail levels.
+# These are configurable workflows, not 11,000 separately trained AI models.
+TOOL_COUNT = BASE_TOOL_COUNT * len(TOOL_OUTPUT_FORMATS) * len(TOOL_LEVELS)
 
 
 def run_tool(tool_name, details):
@@ -1129,16 +1175,14 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("WORKSPACE")
+    st.caption("MAIN WORKSPACE")
 
     navigation = [
         ("⌂", "Dashboard"),
         ("✦", "AI Chat"),
         ("▧", "AI Image Studio"),
         ("⌕", "Tool Center"),
-        ("▤", "PDF Assistant"),
-        ("◈", "Website Builder"),
-        ("⌘", "App Builder")
+        ("▥", "Stock Market")
     ]
 
     for icon_text, name in navigation:
@@ -1150,21 +1194,16 @@ with st.sidebar:
             st.session_state.page = name
             st.rerun()
 
-    st.markdown("---")
-    st.caption("YOUR LIBRARY")
-
-    for icon_text, name in [
-        ("◷", "Chat History"),
-        ("▣", "My Creations"),
-        ("⚙", "Settings"),
-        ("ⓘ", "About")
-    ]:
-        if st.button(
-            f"{icon_text}   {name}",
-            key=f"nav_{name}",
-            use_container_width=True
-        ):
-            st.session_state.page = name
+    with st.expander("More workspace tools"):
+        extra_pages = [
+            "PDF Assistant", "Website Builder", "App Builder",
+            "Chat History", "My Creations", "Settings", "About"
+        ]
+        selected_extra = st.selectbox(
+            "Open a section", extra_pages, key="extra_page_selector"
+        )
+        if st.button("Open selected section", key="open_extra_page", use_container_width=True):
+            st.session_state.page = selected_extra
             st.rerun()
 
     st.markdown("---")
@@ -1201,7 +1240,7 @@ with st.sidebar:
             st.rerun()
 
     st.markdown(
-        '<div class="small-muted">NEXTGEN AI V8<br>'
+        '<div class="small-muted">NEXTGEN AI V9<br>'
         'Created by Arav</div>',
         unsafe_allow_html=True
     )
@@ -1225,7 +1264,7 @@ if page == "Dashboard":
         f'<div class="tool-stat">'
         f'<span class="dash-kicker">YOUR AI TOOLBOX</span>'
         f'<h2 style="margin:5px 0 2px;color:white;font-size:30px;">'
-        f'{TOOL_COUNT}+ AI tool presets</h2>'
+        f'{TOOL_COUNT:,} AI tool workflows</h2>'
         f'<div class="small-muted">Study, coding, writing, creator workflows and more.</div>'
         f'</div>',
         unsafe_allow_html=True
@@ -1237,7 +1276,7 @@ if page == "Dashboard":
         metric("AI PROVIDERS", "MULTI-AI", "Available configured models")
 
     with b:
-        metric("AI TOOLBOX", f"{TOOL_COUNT}+", "Working tool presets")
+        metric("AI TOOLBOX", "10,000+", "Configurable AI workflows")
 
     with c:
         metric("BUILD", "WEBSITES", "Create responsive web pages")
@@ -1272,6 +1311,17 @@ if page == "Dashboard":
 
         if st.button("Open Image Studio", key="dash_image", use_container_width=True):
             st.session_state.page = "AI Image Studio"
+            st.rerun()
+
+        st.markdown("""
+        <div class="dash-feature">
+        <div class="dash-kicker">FINANCE LEARNING</div>
+        <h3>▥ Stock Market Academy</h3>
+        <p>Learn market basics, read charts, understand risk and practise with a paper portfolio.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Open Stock Market Academy", key="dash_stock", use_container_width=True):
+            st.session_state.page = "Stock Market"
             st.rerun()
 
     with right:
@@ -1315,7 +1365,8 @@ if page == "Dashboard":
 
     st.markdown("""
     - **AI Chat:** Groq, Gemini, OpenAI and Claude fallback.
-    - **AI Tool Center:** Task presets for different workflows.
+    - **AI Tool Center:** 10,000+ configurable workflows generated from task presets, output formats and learning levels.
+    - **Stock Market Academy:** Beginner lessons, uploaded-data chart analysis, company research checklists and paper-portfolio calculations.
     - **Coding School:** Beginner-friendly coding lessons.
     - **AI Image Studio:** Cloudflare FLUX image generation.
     - **PDF Assistant:** Document question answering.
@@ -1494,61 +1545,93 @@ elif page == "AI Image Studio":
 
     hero(
         "AI Image Studio",
-        "Bring your imagination to life with Cloudflare FLUX."
+        "Create artwork with styles, composition controls and social-media ratios."
     )
 
     st.markdown("### Describe your image")
 
     image_mode = st.selectbox(
-        "＋ Choose image feature",
-        [
-            "Text to Image",
-            "Cinematic Image",
-            "Anime Style Prompt",
-            "Logo Concept",
-            "Poster Concept",
-            "Thumbnail Concept",
-            "Fantasy Art",
-            "Product Image Concept"
-        ]
+        "＋ Choose creation type",
+        ["Text to Image", "Cinematic Poster", "Anime Artwork", "Logo Concept",
+         "YouTube Thumbnail", "Instagram Post", "Product Photography",
+         "Fantasy Art", "Devotional Artwork", "Character Design", "Book Cover",
+         "Wallpaper", "Story Scene", "Professional Portrait"]
     )
 
     prompt = st.text_area(
         "Image prompt",
-        placeholder="Describe the image you want to create...",
-        height=100,
+        placeholder="Describe the subject, background, mood, colours, clothing, lighting and details...",
+        height=120,
         key="image_prompt"
     )
 
-    aspect = st.selectbox(
-        "Image format",
-        ["Square", "Portrait", "Landscape"]
+    style_options = [
+        "Cinematic realism", "Ultra-realistic photography", "3D Pixar-like animation",
+        "Anime", "Manga ink illustration", "Watercolor painting", "Oil painting",
+        "Digital concept art", "Fantasy illustration", "Cyberpunk neon",
+        "Vintage film", "Minimalist", "Luxury editorial", "Dark dramatic",
+        "Indian festive art", "Devotional traditional art", "Comic-book style",
+        "Clay 3D", "Isometric 3D", "Ghibli-inspired soft animation look",
+        "Retro 90s poster", "Street photography", "Architectural visualization",
+        "Product studio photography", "Paper-cut craft", "Pixel art"
+    ]
+    style = st.selectbox("Choose an art style", style_options, index=0)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        aspect = st.selectbox(
+            "Aspect ratio / composition",
+            ["9:16 — Reels / Shorts / Stories", "16:9 — YouTube / Landscape",
+             "1:1 — Square post", "4:5 — Instagram portrait",
+             "3:4 — Portrait artwork", "4:3 — Classic landscape",
+             "3:2 — Photography", "2:3 — Poster / Book cover"]
+        )
+    with col_b:
+        lighting = st.selectbox(
+            "Lighting & mood",
+            ["Cinematic dramatic lighting", "Golden hour", "Soft natural light",
+             "Studio lighting", "Neon night lighting", "Sunrise glow",
+             "Moody shadows", "Bright colourful lighting", "Candlelight"]
+        )
+
+    col_c, col_d = st.columns(2)
+    with col_c:
+        camera = st.selectbox(
+            "Camera / framing",
+            ["Wide shot", "Medium shot", "Close-up", "Extreme close-up",
+             "Low-angle hero shot", "Top-down view", "Eye-level portrait",
+             "Macro detail", "Full-body composition"]
+        )
+    with col_d:
+        detail_level = st.selectbox(
+            "Detail level", ["Balanced detail", "Highly detailed", "Clean minimal detail", "Fine textures and sharp focus"]
+        )
+
+    negative_prompt = st.text_input(
+        "Avoid (optional)",
+        placeholder="e.g. blurry, text errors, extra fingers, watermark, clutter"
     )
 
-    if st.button("✦ Generate Image", use_container_width=True):
+    st.caption("The selected ratio guides the composition prompt. The connected image model may not return an exact pixel ratio.")
 
+    if st.button("✦ Generate Image", use_container_width=True):
         if not prompt.strip():
             st.warning("Please write an image prompt.")
-
         else:
             full_prompt = (
-                image_mode + ". " + prompt +
-                ". Composition: " + aspect + "."
+                f"{image_mode}. Art direction: {style}. Subject and scene: {prompt}. "
+                f"Composition ratio: {aspect}. Lighting: {lighting}. Camera framing: {camera}. "
+                f"Quality: {detail_level}. Create a polished, coherent image with clear subject placement. "
+                + (f"Avoid: {negative_prompt}." if negative_prompt.strip() else "")
             )
-
             with st.spinner("Creating your image..."):
                 try:
                     result = cloudflare_image(full_prompt)
-
                     st.image(result, use_container_width=True)
-
                     st.download_button(
-                        "↓ Download Image",
-                        data=result,
-                        file_name="nextgen_image.png",
-                        mime="image/png"
+                        "↓ Download Image", data=result,
+                        file_name="nextgen_image.png", mime="image/png"
                     )
-
                 except Exception as exc:
                     st.error("Image generation failed: " + str(exc))
 
@@ -1640,7 +1723,7 @@ elif page == "Tool Center":
         f'<div class="tool-stat">'
         f'<span class="dash-kicker">TOOL LIBRARY</span>'
         f'<h2 style="margin:4px 0;color:white;font-size:28px;">'
-        f'{TOOL_COUNT}+ AI tools</h2>'
+        f'{TOOL_COUNT:,} AI tool workflows</h2>'
         f'<div class="small-muted">Study, coding, writing, creativity and productivity.</div>'
         f'</div>',
         unsafe_allow_html=True
@@ -1657,6 +1740,12 @@ elif page == "Tool Center":
         TOOL_LIBRARY[category],
         key="tool_name_select"
     )
+
+    option_a, option_b = st.columns(2)
+    with option_a:
+        output_format = st.selectbox("③ Output format", TOOL_OUTPUT_FORMATS, key="tool_output_format")
+    with option_b:
+        learning_level = st.selectbox("④ Detail / learning level", TOOL_LEVELS, key="tool_learning_level")
 
     st.markdown(f"### ✦ {tool_name}")
     st.caption("Selected Category: " + category)
@@ -1683,7 +1772,11 @@ elif page == "Tool Center":
         else:
             with st.spinner(f"Running {tool_name}..."):
                 try:
-                    result, provider = run_tool(tool_name, details)
+                    configured_details = (
+                        f"Requested output format: {output_format}\n"
+                        f"Requested level: {learning_level}\n\n{details}"
+                    )
+                    result, provider = run_tool(tool_name, configured_details)
 
                     st.session_state.tool_result = {
                         "tool": tool_name,
@@ -1716,9 +1809,160 @@ elif page == "Tool Center":
         )
 
     st.caption(
-        f"{TOOL_COUNT} working prompt-based tool presets "
-        f"across {len(TOOL_LIBRARY)} categories."
+        f"{BASE_TOOL_COUNT} base task presets × {len(TOOL_OUTPUT_FORMATS)} output formats "
+        f"× {len(TOOL_LEVELS)} levels = {TOOL_COUNT:,} configurable AI workflows. "
+        "These are workflows powered by your configured AI provider, not separate AI models."
     )
+
+
+# ============================================================
+# STOCK MARKET ACADEMY — EDUCATION + CHART ANALYSIS
+# ============================================================
+
+elif page == "Stock Market":
+    hero("Stock Market Academy", "Learn investing concepts, understand charts and practise analysis without placing real trades.")
+
+    st.info("Learning mode only: this page does not tell you what to buy or sell. Market prices can change quickly. Use a parent/guardian and a qualified financial professional for real financial decisions.")
+
+    tab_learn, tab_chart, tab_company, tab_practice = st.tabs([
+        "Learn", "Chart Lab", "Company Analysis", "Paper Portfolio"
+    ])
+
+    with tab_learn:
+        lessons = {
+            "1. What is a stock?": "A stock represents a small ownership share in a company. Stock prices can rise or fall, and you can lose money.",
+            "2. Exchanges and indices": "Exchanges are marketplaces where securities trade. An index tracks a selected group of securities, such as the NIFTY 50 or S&P 500.",
+            "3. Candlesticks": "A candle summarizes open, high, low and close for a time period. The body compares open and close; the wicks show the high and low.",
+            "4. Trend and support/resistance": "A trend describes the broad direction of price. Support and resistance are chart areas where price has previously struggled to move through; they are not guarantees.",
+            "5. Volume": "Volume measures how many shares traded in a period. It can add context to a price move but does not predict the future.",
+            "6. Risk and diversification": "Risk is uncertainty about outcomes. Diversification spreads exposure across different assets; it cannot remove all risk.",
+            "7. Fundamental analysis": "This studies a company's business, revenue, profit, debt, cash flow, competitive position and valuation.",
+            "8. Technical analysis": "This studies price and volume history using charts and indicators. Indicators are descriptive tools, not certain signals.",
+            "9. Common indicators": "Moving averages smooth price data. RSI measures recent momentum. MACD compares moving averages. Each can give false signals.",
+            "10. Long-term investing vs trading": "Investing usually focuses on ownership and long-term business performance. Trading usually focuses on shorter-term price movements and often involves higher activity and costs.",
+            "11. Fees, taxes and inflation": "Costs and taxes reduce returns. Inflation reduces purchasing power, so nominal gains are not the same as real gains.",
+            "12. Scams and emotional decisions": "Be cautious of guaranteed-return claims, pressure tactics, unregistered advisers and social-media tips. Never share OTPs or account credentials."
+        }
+        lesson_name = st.selectbox("Choose a lesson", list(lessons.keys()), key="market_lesson")
+        st.markdown("### " + lesson_name)
+        st.write(lessons[lesson_name])
+        learner_question = st.text_area("Ask NEXTGEN AI to teach this topic with examples", key="market_lesson_question", placeholder="Explain this in simple Hindi with an example...")
+        if st.button("Teach me this topic", key="teach_market_topic", use_container_width=True):
+            question = f"Teach this stock-market education topic safely and accurately: {lesson_name}. Base explanation: {lessons[lesson_name]}. Student question: {learner_question or 'Explain from basics with an example and a short quiz.'} Do not give personalized buy/sell advice or promise returns."
+            with st.spinner("Preparing your lesson..."):
+                try:
+                    answer, provider = ask_ai([{"role": "user", "content": question}])
+                    st.markdown(answer)
+                    st.caption("Learning response by " + provider)
+                except Exception as exc:
+                    st.error("AI lesson unavailable: " + str(exc))
+
+    with tab_chart:
+        st.markdown("### Live / historical market chart")
+        st.write("Try a ticker such as AAPL, MSFT, RELIANCE.NS or TCS.NS. The public chart source is unofficial and may be unavailable or rate-limited; always verify prices with your broker or exchange.")
+        live_a, live_b = st.columns(2)
+        with live_a:
+            market_symbol = st.text_input("Ticker symbol", value="RELIANCE.NS", key="market_chart_symbol")
+        with live_b:
+            market_period = st.selectbox("Chart period", ["1mo", "3mo", "6mo", "1y", "5y"], index=1, key="market_chart_period")
+        if st.button("Load market chart", key="load_market_chart", use_container_width=True):
+            try:
+                points, market_meta = fetch_public_market_history(market_symbol, market_period)
+                st.session_state["market_chart_points"] = points
+                st.session_state["market_chart_meta"] = market_meta
+                st.session_state["market_chart_symbol_loaded"] = market_symbol.strip().upper()
+            except Exception as exc:
+                st.warning("Live chart could not be loaded: " + str(exc))
+        if st.session_state.get("market_chart_points"):
+            points = st.session_state["market_chart_points"]
+            st.markdown("#### " + st.session_state.get("market_chart_symbol_loaded", "Market") + " price history")
+            st.line_chart({"Close": [v for _, v in points]}, y_label="Price")
+            start_price, end_price = points[0][1], points[-1][1]
+            pct = ((end_price - start_price) / start_price * 100) if start_price else 0
+            q1, q2, q3 = st.columns(3)
+            q1.metric("First close", f"{start_price:,.2f}")
+            q2.metric("Latest close", f"{end_price:,.2f}")
+            q3.metric("Period change", f"{pct:+.2f}%")
+            st.caption("Historical prices are not predictions. Endpoint: Yahoo Finance public chart API (unofficial).")
+
+        st.markdown("---")
+        st.markdown("### Or analyse your own CSV data")
+        st.write("Upload a CSV with a Date column and a Close column. This is your uploaded data, not a live feed.")
+        chart_file = st.file_uploader("Upload price history CSV", type=["csv"], key="market_csv")
+        if chart_file is not None:
+            try:
+                import csv
+                raw = chart_file.getvalue().decode("utf-8-sig").splitlines()
+                rows = list(csv.DictReader(raw))
+                if not rows:
+                    st.warning("The CSV has no data rows.")
+                else:
+                    headers = list(rows[0].keys())
+                    date_col = next((h for h in headers if h and h.lower() in ["date", "time", "timestamp"]), headers[0])
+                    close_col = next((h for h in headers if h and h.lower() in ["close", "adj close", "price", "last"]), None)
+                    if close_col is None:
+                        st.error("Could not find a Close, Adj Close, Price or Last column.")
+                    else:
+                        chart_rows = []
+                        for row in rows:
+                            try:
+                                chart_rows.append((str(row.get(date_col, "")), float(str(row.get(close_col, "").replace(",", "")))))
+                            except Exception:
+                                continue
+                        if len(chart_rows) >= 2:
+                            st.line_chart({"Close": [v for _, v in chart_rows]}, x_label="Uploaded rows", y_label="Close price")
+                            first, last = chart_rows[0][1], chart_rows[-1][1]
+                            change = ((last - first) / first * 100) if first else 0
+                            m1, m2, m3 = st.columns(3)
+                            m1.metric("First close", f"{first:,.2f}")
+                            m2.metric("Latest close", f"{last:,.2f}")
+                            m3.metric("Change in uploaded range", f"{change:+.2f}%")
+                            st.caption(f"Showing {len(chart_rows)} valid rows from {date_col} / {close_col}. This is historical uploaded data, not a forecast.")
+                        else:
+                            st.warning("At least two valid numeric closing prices are needed.")
+            except Exception as exc:
+                st.error("Could not read CSV: " + str(exc))
+        else:
+            sample_prices = [100, 102, 101, 105, 103, 108, 110, 107, 112, 115, 113, 118]
+            st.line_chart({"Illustrative sample price": sample_prices}, y_label="Illustrative price")
+            st.caption("Illustrative sample only — not a real stock or live market data.")
+
+    with tab_company:
+        st.markdown("### Company research checklist")
+        ticker = st.text_input("Company name / ticker", placeholder="e.g. a company you want to study", key="market_company")
+        company_context = st.text_area("Paste financial data or describe what you want to understand", placeholder="Revenue, profit, debt, cash flow, valuation, business model, competitors, risks...", height=120, key="market_company_context")
+        if st.button("Create educational company analysis", key="company_analysis_button", use_container_width=True):
+            if not ticker.strip():
+                st.warning("Enter a company name or ticker first.")
+            else:
+                prompt = f"Create an educational research report for {ticker}. Analyse only the information supplied below; if data is missing, list it as missing and do not invent figures. Cover business model, revenue/profit trends, debt, cash flow, valuation concepts, competition, governance, risks, questions to research and a balanced summary. Do not give a personalized buy/sell recommendation. Data/context: {company_context}"
+                with st.spinner("Reviewing the supplied information..."):
+                    try:
+                        answer, provider = ask_ai([{"role": "user", "content": prompt}])
+                        st.markdown(answer)
+                        st.caption("Educational analysis by " + provider + ". Verify figures against official filings and exchange disclosures.")
+                    except Exception as exc:
+                        st.error("Analysis unavailable: " + str(exc))
+
+    with tab_practice:
+        st.markdown("### Paper portfolio calculator")
+        st.caption("Practice arithmetic with hypothetical numbers. No order is placed and no real money is involved.")
+        pc1, pc2, pc3 = st.columns(3)
+        with pc1:
+            buy_price = st.number_input("Hypothetical entry price", min_value=0.0, value=100.0, step=1.0, key="paper_buy")
+        with pc2:
+            current_price = st.number_input("Hypothetical current price", min_value=0.0, value=110.0, step=1.0, key="paper_current")
+        with pc3:
+            quantity = st.number_input("Units", min_value=1, value=5, step=1, key="paper_quantity")
+        invested = buy_price * quantity
+        current_value = current_price * quantity
+        pnl = current_value - invested
+        pnl_pct = (pnl / invested * 100) if invested else 0
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Hypothetical cost", f"₹{invested:,.2f}")
+        p2.metric("Hypothetical value", f"₹{current_value:,.2f}")
+        p3.metric("Unrealized practice P/L", f"₹{pnl:,.2f}", f"{pnl_pct:+.2f}%")
+        st.caption("This simplified example excludes brokerage, taxes, slippage, dividends and other costs.")
 
 
 # ============================================================

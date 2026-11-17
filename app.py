@@ -1231,218 +1231,149 @@ if page == "Dashboard":
     """)
 
 
-# ============================================================
-# AI CHAT
-# ============================================================
+# =====================================================
+# AI CHAT - ORIGINAL DESIGN PRESERVED
+# =====================================================
 
 elif page == "AI Chat":
 
     st.markdown("## ✦ AI Chat")
     st.caption("Ask anything. Your assistant is ready.")
 
-    for index, (role, content) in enumerate(st.session_state.messages):
-
+    for role, content in st.session_state.messages:
         with st.chat_message(role):
             st.markdown(content)
 
-            if role == "assistant":
-                safe_text = html.escape(content)
+    with st.container(border=True):
 
-                c1, c2, c3, c4, c5 = st.columns(5)
-
-                with c1:
-                    st.download_button(
-                        "Copy / Save",
-                        data=content,
-                        file_name="nextgen_answer.txt",
-                        mime="text/plain",
-                        key=f"copy_{index}"
-                    )
-
-                with c2:
-                    if st.button("Read Aloud", key=f"read_{index}"):
-                        components.html(
-                            f"""
-                            <script>
-                            const text = {json.dumps(content)};
-                            if ('speechSynthesis' in window) {{
-                                window.speechSynthesis.cancel();
-                                const msg = new SpeechSynthesisUtterance(text);
-                                window.speechSynthesis.speak(msg);
-                            }}
-                            </script>
-                            """,
-                            height=0
-                        )
-                        st.toast("Read Aloud requested.")
-
-                with c3:
-                    st.download_button(
-                        "Share",
-                        data=content,
-                        file_name="NEXTGEN_shared_answer.txt",
-                        mime="text/plain",
-                        key=f"share_{index}"
-                    )
-
-                with c4:
-                    if st.button("Like", key=f"like_{index}"):
-                        st.toast("Thanks for your feedback!")
-
-                with c5:
-                    if index == len(st.session_state.messages) - 1:
-                        if st.button("Regenerate", key=f"regen_{index}"):
-                            st.session_state.regenerate = True
-                            st.rerun()
-
-    with st.expander("＋  Add tools and attachments", expanded=False):
-
-        chat_tool = st.selectbox(
-            "Choose an optional chat tool",
-            [
-                "None",
-                "Explain simply",
-                "Coding Assistant",
-                "Study Tutor",
-                "Writing Assistant",
-                "Creative Assistant",
-                "Research Helper"
-            ],
-            key="chat_plus_tool"
+        live_col, input_col = st.columns(
+            [1.0, 8.5],
+            vertical_alignment="center"
         )
 
-        uploaded_file = st.file_uploader(
-            "Attach PDF or text file",
-            type=["pdf", "txt"],
-            key="chat_attachment"
-        )
+        with live_col:
 
-        audio_file = st.file_uploader(
-            "Add voice recording",
-            type=["wav", "mp3", "m4a", "ogg"],
-            key="chat_voice"
-        )
+            if CF_LIVE_URL:
+                st.link_button(
+                    "◉ Live",
+                    CF_LIVE_URL,
+                    use_container_width=True
+                )
+            else:
+                st.button(
+                    "◉ Live",
+                    disabled=True,
+                    help="Add CLOUDFLARE_VOICE_URL in Streamlit Secrets.",
+                    use_container_width=True
+                )
 
-    if st.session_state.get("regenerate"):
+        with input_col:
 
-        st.session_state.regenerate = False
+            submitted = st.chat_input(
+                "Message NEXTGEN AI...",
+                key="nextgen_chat_input",
+                accept_file=True,
+                accept_audio=True,
+                file_type=["pdf", "txt", "png", "jpg", "jpeg"],
+                max_upload_size=20
+            )
 
-        previous_user = next(
-            (
-                content for role, content
-                in reversed(st.session_state.messages)
-                if role == "user"
-            ),
-            None
-        )
+    if submitted is not None:
 
-        if previous_user:
-            with st.spinner("Regenerating answer..."):
-                try:
-                    history = [
-                        {"role": r, "content": c}
-                        for r, c in st.session_state.messages[:-1]
-                    ]
-                    answer, provider = ask_ai(history)
-                    st.session_state.messages.append(("assistant", answer))
-                    save_message(
-                        st.session_state.chat_id,
-                        USER_ID,
-                        "assistant",
-                        answer
-                    )
-                    st.session_state.last_provider = provider
-                except Exception as exc:
-                    st.error(str(exc))
+        user_text = submitted.text or ""
+        file_context = ""
 
-        st.rerun()
+        for uploaded in (submitted.files or []):
 
-    user_prompt = st.chat_input("Message NEXTGEN AI...")
+            filename = uploaded.name.lower()
 
-    if user_prompt:
+            if filename.endswith(".txt"):
 
-        attachment_text = ""
-
-        if uploaded_file:
-            if uploaded_file.name.lower().endswith(".txt"):
-                attachment_text = uploaded_file.getvalue().decode(
+                file_context += "\n\n[Attached text]\n"
+                file_context += uploaded.getvalue().decode(
                     "utf-8", errors="ignore"
                 )[:20000]
 
-            elif uploaded_file.name.lower().endswith(".pdf"):
+            elif filename.endswith(".pdf"):
+
                 try:
                     from pypdf import PdfReader
-                    reader = PdfReader(
-                        io.BytesIO(uploaded_file.getvalue())
-                    )
-                    attachment_text = "\n".join(
+
+                    reader = PdfReader(io.BytesIO(uploaded.getvalue()))
+
+                    extracted = "\n".join(
                         p.extract_text() or ""
                         for p in reader.pages
-                    )[:25000]
-                except Exception as exc:
-                    st.error("PDF reading failed: " + str(exc))
+                    )
 
-        if audio_file:
-            try:
-                voice_text = transcribe_audio(audio_file)
-                user_prompt += "\n\nVoice input: " + voice_text
-            except Exception as exc:
-                st.warning("Voice transcription failed: " + str(exc))
+                    file_context += "\n\n[Attached PDF]\n"
+                    file_context += extracted[:25000]
 
-        if attachment_text:
-            user_prompt += "\n\nAttached document:\n" + attachment_text
+                except Exception as e:
+                    st.warning(f"Could not read {uploaded.name}: {e}")
 
-        if chat_tool != "None":
-            user_prompt = (
-                "Use this mode: " + chat_tool +
-                "\n\nUser request: " + user_prompt
-            )
+            elif filename.endswith((".png", ".jpg", ".jpeg")):
 
-        st.session_state.messages.append(("user", user_prompt))
-
-        save_message(
-            st.session_state.chat_id,
-            USER_ID,
-            "user",
-            user_prompt
-        )
-
-        if len(st.session_state.messages) == 1:
-            set_chat_title(
-                st.session_state.chat_id,
-                USER_ID,
-                user_prompt[:48]
-            )
-
-        api_messages = [
-            {"role": r, "content": c}
-            for r, c in st.session_state.messages[-20:]
-        ]
-
-        with st.spinner("NEXTGEN AI is thinking..."):
-            try:
-                answer, provider = ask_ai(api_messages)
-
-                st.session_state.messages.append(("assistant", answer))
-
-                save_message(
-                    st.session_state.chat_id,
-                    USER_ID,
-                    "assistant",
-                    answer
+                st.info(
+                    f"{uploaded.name} attached. Image understanding "
+                    "is not enabled in this text-chat build."
                 )
 
-                st.session_state.last_provider = provider
+        if submitted.audio is not None:
 
-            except Exception as exc:
-                st.error(str(exc))
+            with st.spinner("Converting your voice to text..."):
 
-        st.rerun()
+                try:
+                    voice_text = transcribe_audio(submitted.audio)
+                    user_text = (user_text + "\n" + voice_text).strip()
+
+                except Exception as e:
+                    st.error(f"Voice transcription failed: {e}")
+
+        user_text = (user_text + file_context).strip()
+
+        if user_text:
+
+            st.session_state.messages.append(("user", user_text))
+
+            save_message(
+                st.session_state.chat_id,
+                "user",
+                user_text
+            )
+
+            if len(st.session_state.messages) == 1:
+                set_chat_title(st.session_state.chat_id, user_text[:48])
+
+            api_messages = [
+                {"role": role, "content": content}
+                for role, content in st.session_state.messages[-20:]
+            ]
+
+            with st.spinner("NEXTGEN AI is thinking..."):
+
+                try:
+                    answer, provider = ask_ai(api_messages)
+
+                    st.session_state.messages.append(("assistant", answer))
+
+                    save_message(
+                        st.session_state.chat_id,
+                        "assistant",
+                        answer
+                    )
+
+                    st.session_state.last_provider = provider
+
+                except Exception as e:
+                    st.error(str(e))
+
+            st.rerun()
 
     st.caption(
-        f"Response engine: {st.session_state.last_provider}"
+        f"Response engine: {st.session_state.last_provider} "
+        "• Plus and Mic are built into the chat input."
     )
-
 
 # ============================================================
 # AI IMAGE STUDIO

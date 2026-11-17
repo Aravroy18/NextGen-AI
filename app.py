@@ -9,6 +9,8 @@ import sqlite3
 import hashlib
 import secrets
 import requests
+from html.parser import HTMLParser
+from urllib.parse import urlparse, parse_qs, unquote
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -688,6 +690,78 @@ def ask_ai(messages):
     )
 
 
+# ---------------- SMART WEB SEARCH ----------------
+
+class DuckDuckGoParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.results = []
+        self.capture = False
+        self.href = ""
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "a" and "result__a" in attrs.get("class", ""):
+            self.capture = True
+            self.href = attrs.get("href", "")
+            self.parts = []
+
+    def handle_data(self, data):
+        if self.capture:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.capture:
+            href = self.href
+            if "uddg=" in href:
+                href = parse_qs(urlparse(href).query).get("uddg", [href])[0]
+            if href.startswith("http"):
+                self.results.append({"title": "".join(self.parts).strip(), "url": unquote(href)})
+            self.capture = False
+
+
+def smart_web_search(query, max_results=5):
+    response = requests.get(
+        "https://html.duckduckgo.com/html/",
+        params={"q": query},
+        headers={"User-Agent": "Mozilla/5.0 (compatible; NEXTGENAI/1.0)"},
+        timeout=12
+    )
+    response.raise_for_status()
+    parser = DuckDuckGoParser()
+    parser.feed(response.text)
+    unique, results = set(), []
+    for item in parser.results:
+        if item["title"] and item["url"] not in unique:
+            unique.add(item["url"])
+            results.append(item)
+        if len(results) >= max_results:
+            break
+    return results
+
+
+def needs_web_search(text):
+    q = (text or "").lower()
+    terms = (
+        "search the web", "search online", "google it", "look it up", "web search",
+        "website search", "online search", "सर्च करो", "इंटरनेट पर खोज",
+        "वेबसाइट पर खोज", "वेब पर खोज", "latest", "today", "current", "right now",
+        "this week", "2026", "news", "recent", "price today", "live score",
+        "release date", "new update", "updated version", "अभी का", "आज का",
+        "ताज़ा", "लेटेस्ट", "वर्तमान", "न्यूज़", "कीमत आज", "अभी कौन"
+    )
+    return any(term in q for term in terms)
+
+
+def format_search_context(results):
+    lines = ["WEB SEARCH RESULTS. Use these sources; do not invent facts:"]
+    for i, item in enumerate(results, 1):
+        lines.append(f"[{i}] {item['title']}\nURL: {item['url']}")
+    lines.append("Cite relevant source URLs in your answer and state when results are insufficient.")
+    return "\n\n".join(lines)
+
+
 # ---------------- IMAGE GENERATION ----------------
 
 def cloudflare_image(prompt):
@@ -883,7 +957,11 @@ defaults = {
     "last_provider": "Automatic",
     "tool_result": None,
     "selected_tool": None,
-    "last_user_prompt": ""
+    "last_user_prompt": "",
+    "website_result": "",
+    "website_provider": "",
+    "app_builder_result": "",
+    "app_builder_provider": ""
 }
 
 for key, value in defaults.items():
@@ -1058,7 +1136,9 @@ with st.sidebar:
         ("✦", "AI Chat"),
         ("▧", "AI Image Studio"),
         ("⌕", "Tool Center"),
-        ("▤", "PDF Assistant")
+        ("▤", "PDF Assistant"),
+        ("◈", "Website Builder"),
+        ("⌘", "App Builder")
     ]
 
     for icon_text, name in navigation:
@@ -1154,16 +1234,16 @@ if page == "Dashboard":
     a, b, c, d = st.columns(4)
 
     with a:
-        metric("MAIN AI", "GROQ", "Primary assistant")
+        metric("AI PROVIDERS", "MULTI-AI", "Available configured models")
 
     with b:
-        metric("BACKUP AI", "GEMINI", "Automatic fallback")
+        metric("AI TOOLBOX", f"{TOOL_COUNT}+", "Working tool presets")
 
     with c:
-        metric("EXTRA AI", "OPENAI + CLAUDE", "Additional providers")
+        metric("BUILD", "WEBSITES", "Create responsive web pages")
 
     with d:
-        metric("AI TOOLBOX", f"{TOOL_COUNT}+", "Working tool presets")
+        metric("BUILD", "APPS", "Generate application starter code")
 
     st.markdown("## Explore your workspace")
 
@@ -1219,6 +1299,18 @@ if page == "Dashboard":
             st.session_state.page = "PDF Assistant"
             st.rerun()
 
+    builder_left, builder_right = st.columns(2, gap="large")
+    with builder_left:
+        st.markdown('<div class="dash-feature"><div class="dash-kicker">BUILD</div><h3>◈ Website Builder</h3><p>Generate responsive websites and downloadable HTML files.</p></div>', unsafe_allow_html=True)
+        if st.button("Open Website Builder", key="dash_website", use_container_width=True):
+            st.session_state.page = "Website Builder"
+            st.rerun()
+    with builder_right:
+        st.markdown('<div class="dash-feature"><div class="dash-kicker">DEVELOP</div><h3>⌘ App Builder</h3><p>Generate application starter code and project files.</p></div>', unsafe_allow_html=True)
+        if st.button("Open App Builder", key="dash_appbuilder", use_container_width=True):
+            st.session_state.page = "App Builder"
+            st.rerun()
+
     st.markdown("## Built for your workflow")
 
     st.markdown("""
@@ -1227,6 +1319,9 @@ if page == "Dashboard":
     - **Coding School:** Beginner-friendly coding lessons.
     - **AI Image Studio:** Cloudflare FLUX image generation.
     - **PDF Assistant:** Document question answering.
+    - **Website Builder:** Prompt-based responsive website generation.
+    - **App Builder:** Prompt-based application starter code.
+    - **Smart Web Search:** Automatically searches when a question needs fresh online information.
     - **Chat History:** Saved conversations linked to your account.
     """)
 
@@ -1338,6 +1433,7 @@ elif page == "AI Chat":
 
             save_message(
                 st.session_state.chat_id,
+                USER_ID,
                 "user",
                 user_text
             )
@@ -1353,12 +1449,27 @@ elif page == "AI Chat":
             with st.spinner("NEXTGEN AI is thinking..."):
 
                 try:
+                    search_results = []
+                    if needs_web_search(user_text):
+                        try:
+                            search_results = smart_web_search(user_text, max_results=5)
+                        except Exception:
+                            st.warning("Automatic web search is unavailable right now. I will answer using the configured AI model only.")
+
+                    if search_results:
+                        api_messages.append({"role": "user", "content": format_search_context(search_results)})
+
                     answer, provider = ask_ai(api_messages)
+                    if search_results:
+                        answer += "\n\n**Web sources**\n" + "\n".join(
+                            f"- [{item['title']}]({item['url']})" for item in search_results
+                        )
 
                     st.session_state.messages.append(("assistant", answer))
 
                     save_message(
                         st.session_state.chat_id,
+                        USER_ID,
                         "assistant",
                         answer
                     )
@@ -1440,6 +1551,78 @@ elif page == "AI Image Studio":
 
                 except Exception as exc:
                     st.error("Image generation failed: " + str(exc))
+
+
+# ============================================================
+# WEBSITE BUILDER
+# ============================================================
+
+elif page == "Website Builder":
+    hero("AI Website Builder", "Describe a website and generate a responsive, downloadable HTML page.")
+    website_type = st.selectbox("Website type", ["Business Website", "Portfolio", "Landing Page", "Blog", "Event Website", "Product Showcase", "Educational Website"], key="website_type")
+    website_prompt = st.text_area("Describe your website", placeholder="Example: Create a modern stationery shop website with home, products, about and contact sections...", height=150, key="website_prompt")
+    website_style = st.selectbox("Visual direction", ["Modern and clean", "Premium dark", "Colorful and friendly", "Minimal", "Professional corporate"], key="website_style")
+
+    if st.button("✦ Generate Website", key="generate_website", use_container_width=True):
+        if len(website_prompt.strip()) < 12:
+            st.warning("Please describe the website in a little more detail.")
+        else:
+            request_text = ("Create a complete, polished, responsive " + website_type + ".\n"
+                + "Visual direction: " + website_style + ".\nUser requirements: " + website_prompt
+                + "\nReturn ONLY a complete single-file index.html with embedded CSS and JavaScript. "
+                + "Use mobile-first responsive layout, accessible semantic HTML, working navigation, "
+                + "working buttons/forms where possible, no paid service dependencies, and clear comments "
+                + "where owner contact details or API credentials must be added. Do not use markdown fences. "
+                + "Do not claim it is hosted or deployed.")
+            with st.spinner("Building your website..."):
+                try:
+                    result, provider = ask_ai([{"role": "user", "content": request_text}])
+                    cleaned = re.sub(r"^```(?:html)?\s*|\s*```$", "", result.strip(), flags=re.I)
+                    st.session_state.website_result = cleaned
+                    st.session_state.website_provider = provider
+                except Exception as exc:
+                    st.error("Website generation failed: " + str(exc))
+
+    if st.session_state.get("website_result"):
+        st.markdown("### Generated website code")
+        st.caption("Generated by " + st.session_state.get("website_provider", "AI"))
+        st.code(st.session_state.website_result, language="html")
+        st.download_button("↓ Download index.html", data=st.session_state.website_result.encode("utf-8"), file_name="index.html", mime="text/html", key="download_generated_website")
+
+
+# ============================================================
+# APP BUILDER
+# ============================================================
+
+elif page == "App Builder":
+    hero("AI App Builder", "Generate practical application starter code from your idea.")
+    app_platform = st.selectbox("Application platform", ["Python + Streamlit", "Python CLI", "HTML + CSS + JavaScript", "React frontend starter", "Flask web app"], key="app_platform")
+    app_prompt = st.text_area("Describe the application", placeholder="Example: Build a student task manager with add, complete, delete and search tasks...", height=150, key="app_prompt")
+    app_level = st.selectbox("Code detail", ["Beginner-friendly with comments", "Clean production-style starter", "Detailed with explanation"], key="app_level")
+
+    if st.button("✦ Generate App Code", key="generate_app_code", use_container_width=True):
+        if len(app_prompt.strip()) < 12:
+            st.warning("Please describe the app in a little more detail.")
+        else:
+            request_text = ("Create a working starter application for this idea: " + app_prompt
+                + "\nTarget platform: " + app_platform + ".\nCode style: " + app_level
+                + ".\nReturn complete code for the main runnable file with required imports, input validation, "
+                + "useful error handling, and comments. Never invent API keys. If external dependencies are "
+                + "required, list them after the code. Do not claim the code was executed or deployed. "
+                + "Use markdown code fences and identify the language.")
+            with st.spinner("Building your application..."):
+                try:
+                    result, provider = ask_ai([{"role": "user", "content": request_text}])
+                    st.session_state.app_builder_result = result
+                    st.session_state.app_builder_provider = provider
+                except Exception as exc:
+                    st.error("App generation failed: " + str(exc))
+
+    if st.session_state.get("app_builder_result"):
+        st.markdown("### Generated application")
+        st.caption("Generated by " + st.session_state.get("app_builder_provider", "AI"))
+        st.markdown(st.session_state.app_builder_result)
+        st.download_button("↓ Download generated code as TXT", data=st.session_state.app_builder_result.encode("utf-8"), file_name="generated_app_code.txt", mime="text/plain", key="download_generated_app")
 
 
 # ============================================================
@@ -1675,12 +1858,12 @@ elif page == "Settings":
         "Your AI platform configuration."
     )
 
-    st.markdown("### AI Routing")
+    st.markdown("### Available AI Providers")
 
-    st.success(f"Main: Groq — {GROQ_MODEL}")
-    st.success(f"Backup: Gemini — {GEMINI_MODEL}")
-    st.info(f"Additional: OpenAI — {OPENAI_MODEL}")
-    st.info(f"Additional: Claude — {CLAUDE_MODEL}")
+    st.info(f"Groq · {GROQ_MODEL}")
+    st.info(f"Gemini · {GEMINI_MODEL}")
+    st.info(f"OpenAI · {OPENAI_MODEL}")
+    st.info(f"Claude · {CLAUDE_MODEL}")
 
     st.markdown("### Provider Key Status")
 
@@ -1737,6 +1920,9 @@ elif page == "About":
     - AI Chat Assistant
     - AI Image Studio
     - AI Tool Center
+    - Website Builder
+    - App Builder
+    - Smart automatic web search
     - Coding School
     - PDF Assistant
     - Chat History

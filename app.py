@@ -1762,8 +1762,10 @@ elif page == "AI Chat":
 
             with st.spinner("NEXTGEN AI is thinking..."):
 
-                try:
-                                        search_results = []
+                
+
+                                    try:
+                    search_results = []
 
                     if ai_should_search_web(user_text):
                         try:
@@ -1792,6 +1794,21 @@ elif page == "AI Chat":
                             for item in search_results
                         )
 
+                    st.session_state.messages.append(("assistant", answer))
+
+                    save_message(
+                        st.session_state.chat_id,
+                        USER_ID,
+                        "assistant",
+                        answer
+                    )
+
+                    st.session_state.last_provider = provider
+
+                except Exception as e:
+                    st.error(str(e))
+
+            st.rerun()
                     st.session_state.messages.append(("assistant", answer))
 
                     save_message(

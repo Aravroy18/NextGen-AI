@@ -49,6 +49,7 @@ ANTHROPIC_KEY = get_secret("ANTHROPIC_API_KEY")
 CF_ACCOUNT = get_secret("CLOUDFLARE_ACCOUNT_ID")
 CF_TOKEN = get_secret("CLOUDFLARE_API_TOKEN")
 CF_LIVE_URL = get_secret("CLOUDFLARE_VOICE_URL")
+TAVILY_KEY = get_secret("TAVILY_API_KEY")
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -705,75 +706,198 @@ def ask_ai(messages):
 
 # ---------------- SMART WEB SEARCH ----------------
 
-class DuckDuckGoParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.results = []
-        self.capture = False
-        self.href = ""
-        self.parts = []
+def tavily_search(query, max_results=5):
+    if not TAVILY_KEY:
+        raise RuntimeError("TAVILY_API_KEY is missing in Streamlit Secrets.")
 
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == "a" and "result__a" in attrs.get("class", ""):
-            self.capture = True
-            self.href = attrs.get("href", "")
-            self.parts = []
+    response = requests.post(
+        "https://api.tavily.com/search",
+        headers={
+            "Authorization": f"Bearer {TAVILY_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "query": query,
+            "search_depth": "basic",
+            "max_results": max_results,
+            "include_answer": False
+        },
+        timeout=25
+    )
 
-    def handle_data(self, data):
-        if self.capture:
-            self.parts.append(data)
+    response.raise_for_status()
+    data = response.json()
 
-    def handle_endtag(self, tag):
-        if tag == "a" and self.capture:
-            href = self.href
-            if "uddg=" in href:
-                href = parse_qs(urlparse(href).query).get("uddg", [href])[0]
-            if href.startswith("http"):
-                self.results.append({"title": "".join(self.parts).strip(), "url": unquote(href)})
-            self.capture = False
+    results = []
+
+    for item in data.get("results", []):
+        title = item.get("title", "").strip()
+        url = item.get("url", "").strip()
+        content = item.get("content", "").strip()
+
+        if title and url.startswith("http"):
+            results.append({
+                "title": title,
+                "url": url,
+                "content": content
+            })
+
+    if not results:
+        raise RuntimeError("Tavily returned no search results.")
+
+    return results
+
+
+def cloudflare_search(query, max_results=5):
+    if not CF_ACCOUNT or not CF_TOKEN:
+        raise RuntimeError("Cloudflare account ID or API token is missing.")
+
+    response = requests.post(
+        f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT}/ai/websearch/",
+        headers={
+            "Authorization": f"Bearer {CF_TOKEN}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "query": query[:1024],
+            "provider": "exa",
+            "limit": min(max_results, 10),
+            "options": {
+                "gateway": {
+                    "id": "default"
+                }
+            }
+        },
+        timeout=25
+    )
+
+    response.raise_for_status()
+    data = response.json()
+
+    results = []
+
+    for item in data.get("items", []):
+        title = item.get("title", "").strip()
+        url = item.get("url", "").strip()
+        content = item.get("description", "").strip()
+
+        if title and url.startswith("http"):
+            results.append({
+                "title": title,
+                "url": url,
+                "content": content
+            })
+
+    if not results:
+        raise RuntimeError("Cloudflare returned no search results.")
+
+    return results
 
 
 def smart_web_search(query, max_results=5):
-    response = requests.get(
-        "https://html.duckduckgo.com/html/",
-        params={"q": query},
-        headers={"User-Agent": "Mozilla/5.0 (compatible; NEXTGENAI/1.0)"},
-        timeout=12
-    )
-    response.raise_for_status()
-    parser = DuckDuckGoParser()
-    parser.feed(response.text)
-    unique, results = set(), []
-    for item in parser.results:
-        if item["title"] and item["url"] not in unique:
-            unique.add(item["url"])
-            results.append(item)
-        if len(results) >= max_results:
-            break
-    return results
+    errors = []
+
+    # First choice: Tavily
+    if TAVILY_KEY:
+        try:
+            return tavily_search(query, max_results)
+        except Exception as exc:
+            errors.append("Tavily: " + str(exc)[:180])
+
+    # Fallback: Cloudflare Web Search
+    if CF_ACCOUNT and CF_TOKEN:
+        try:
+            return cloudflare_search(query, max_results)
+        except Exception as exc:
+            errors.append("Cloudflare: " + str(exc)[:180])
+
+    if not errors:
+        raise RuntimeError(
+            "No search API is configured. Check Tavily and Cloudflare Secrets."
+        )
+
+    raise RuntimeError("All web search providers failed:\n" + "\n".join(errors))
 
 
 def needs_web_search(text):
     q = (text or "").lower()
+
     terms = (
-        "search the web", "search online", "google it", "look it up", "web search",
-        "website search", "online search", "सर्च करो", "इंटरनेट पर खोज",
-        "वेबसाइट पर खोज", "वेब पर खोज", "latest", "today", "current", "right now",
-        "this week", "2026", "news", "recent", "price today", "live score",
-        "release date", "new update", "updated version", "अभी का", "आज का",
-        "ताज़ा", "लेटेस्ट", "वर्तमान", "न्यूज़", "कीमत आज", "अभी कौन"
+        "search the web", "search online", "google it", "look it up",
+        "web search", "website search", "online search",
+        "सर्च करो", "इंटरनेट पर खोज", "वेबसाइट पर खोज",
+        "वेब पर खोज", "latest", "today", "current", "right now",
+        "this week", "2026", "news", "recent", "price today",
+        "live score", "release date", "new update", "updated version",
+        "अभी का", "आज का", "ताज़ा", "लेटेस्ट", "वर्तमान",
+        "न्यूज़", "कीमत आज", "अभी कौन"
     )
+
     return any(term in q for term in terms)
 
 
-def format_search_context(results):
-    lines = ["WEB SEARCH RESULTS. Use these sources; do not invent facts:"]
-    for i, item in enumerate(results, 1):
-        lines.append(f"[{i}] {item['title']}\nURL: {item['url']}")
-    lines.append("Cite relevant source URLs in your answer and state when results are insufficient.")
-    return "\n\n".join(lines)
+def ai_should_search_web(user_text):
+    # First check whether the question may need fresh web information.
+    if not needs_web_search(user_text):
+        return False
 
+    prompt = f"""
+Decide whether this user question needs a live internet search.
+
+Return ONLY valid JSON in this exact format:
+{{"search": true}}
+or
+{{"search": false}}
+
+Use true for current news, recent updates, today's information,
+live information, current prices, recent releases, or facts that
+may have changed.
+
+Use false for ordinary explanations, general knowledge,
+creative writing, and stable facts.
+
+USER QUESTION:
+{user_text}
+"""
+
+    try:
+        decision, _ = ask_ai([
+            {"role": "user", "content": prompt}
+        ])
+
+        match = re.search(r"\{[\s\S]*?\}", decision)
+
+        if match:
+            parsed = json.loads(match.group(0))
+            if isinstance(parsed.get("search"), bool):
+                return parsed["search"]
+
+    except Exception:
+        pass
+
+    # If AI classification fails, use the existing keyword decision.
+    return needs_web_search(user_text)
+
+
+def format_search_context(results):
+    lines = [
+        "WEB SEARCH RESULTS. Use these sources to answer accurately. "
+        "Do not invent facts."
+    ]
+
+    for i, item in enumerate(results, 1):
+        lines.append(
+            f"[{i}] {item['title']}\n"
+            f"URL: {item['url']}\n"
+            f"Information: {item.get('content', '')}"
+        )
+
+    lines.append(
+        "Use relevant source URLs when answering. "
+        "Say clearly if the search results are insufficient."
+    )
+
+    return "\n\n".join(lines)
 
 # ---------------- PUBLIC MARKET CHART DATA ----------------
 
@@ -1639,20 +1763,33 @@ elif page == "AI Chat":
             with st.spinner("NEXTGEN AI is thinking..."):
 
                 try:
-                    search_results = []
-                    if needs_web_search(user_text):
+                                        search_results = []
+
+                    if ai_should_search_web(user_text):
                         try:
-                            search_results = smart_web_search(user_text, max_results=5)
-                        except Exception:
-                            st.warning("Automatic web search is unavailable right now. I will answer using the configured AI model only.")
+                            search_results = smart_web_search(
+                                user_text,
+                                max_results=5
+                            )
+                        except Exception as search_error:
+                            st.warning(
+                                "Web search failed. "
+                                "I will answer using the configured AI model. "
+                                + str(search_error)[:200]
+                            )
 
                     if search_results:
-                        api_messages.append({"role": "user", "content": format_search_context(search_results)})
+                        api_messages.append({
+                            "role": "user",
+                            "content": format_search_context(search_results)
+                        })
 
                     answer, provider = ask_ai(api_messages)
+
                     if search_results:
                         answer += "\n\n**Web sources**\n" + "\n".join(
-                            f"- [{item['title']}]({item['url']})" for item in search_results
+                            f"- [{item['title']}]({item['url']})"
+                            for item in search_results
                         )
 
                     st.session_state.messages.append(("assistant", answer))

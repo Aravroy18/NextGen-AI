@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# NEXTGEN AI V9
+# NEXTGEN AI V10
 # Existing visual theme + practical new features
 # ============================================================
 
@@ -1020,12 +1020,24 @@ defaults = {
     "website_result": "",
     "website_provider": "",
     "app_builder_result": "",
-    "app_builder_provider": ""
+    "app_builder_provider": "",
+    "quick_prompt": None,
+    "workspace_theme": "Midnight Dark",
+    "chat_response_mode": "Balanced",
+    "chat_output_format": "Automatic"
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
+THEME_PRESETS = {
+    "Midnight Dark": {"font": "Inter", "foreground": "#f6f6ff", "background": "#080c18", "sidebar": "#0a1020"},
+    "Neon Cyber": {"font": "Space Grotesk", "foreground": "#ffffff", "background": "#070b18", "sidebar": "#090f24"},
+    "Soft Focus": {"font": "Poppins", "foreground": "#f8f7ff", "background": "#111022", "sidebar": "#17152b"},
+    "Warm Studio": {"font": "Lora", "foreground": "#fffaf2", "background": "#211a18", "sidebar": "#2a211e"},
+    "Light Mode": {"font": "Nunito Sans", "foreground": "#172033", "background": "#f4f6fb", "sidebar": "#e8edf6"}
+}
 
 
 # ---------------- LOGIN / SIGN UP SCREEN ----------------
@@ -1188,36 +1200,41 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("MAIN WORKSPACE")
+    st.caption("ALL WORKSPACE FEATURES")
 
     navigation = [
         ("⌂", "Dashboard"),
         ("✦", "AI Chat"),
         ("▧", "AI Image Studio"),
         ("⌕", "Tool Center"),
-        ("▥", "Stock Market")
+        ("▥", "Stock Market"),
+        ("▤", "PDF Assistant"),
+        ("◈", "Website Builder"),
+        ("▣", "App Builder"),
+        ("◉", "Live Voice"),
+        ("◷", "Chat History"),
+        ("✧", "My Creations"),
+        ("⚙", "Settings"),
+        ("ⓘ", "About")
     ]
 
     for icon_text, name in navigation:
+        is_active = st.session_state.page == name
         if st.button(
-            f"{icon_text}   {name}",
+            f"{icon_text}   {name}" + ("   •" if is_active else ""),
             key=f"nav_{name}",
             use_container_width=True
         ):
             st.session_state.page = name
             st.rerun()
 
-    with st.expander("More workspace tools"):
-        extra_pages = [
-            "PDF Assistant", "Website Builder", "App Builder",
-            "Chat History", "My Creations", "Settings", "About"
-        ]
-        selected_extra = st.selectbox(
-            "Open a section", extra_pages, key="extra_page_selector"
-        )
-        if st.button("Open selected section", key="open_extra_page", use_container_width=True):
-            st.session_state.page = selected_extra
-            st.rerun()
+    st.markdown("---")
+    st.caption("WORKSPACE MOOD & FONT")
+    selected_theme = st.selectbox(
+        "Choose visual mood",
+        list(THEME_PRESETS.keys()),
+        key="workspace_theme"
+    )
 
     st.markdown("---")
     st.caption("RECENT CONVERSATIONS")
@@ -1253,11 +1270,51 @@ with st.sidebar:
             st.rerun()
 
     st.markdown(
-        '<div class="small-muted">NEXTGEN AI V9<br>'
+        '<div class="small-muted">NEXTGEN AI V10<br>'
         'Created by Arav</div>',
         unsafe_allow_html=True
     )
 
+_theme = THEME_PRESETS.get(st.session_state.workspace_theme, THEME_PRESETS["Midnight Dark"])
+_theme_font = _theme["font"]
+_theme_fg = _theme["foreground"]
+_theme_bg = _theme["background"]
+_theme_sidebar = _theme["sidebar"]
+_theme_app_background = (
+    "radial-gradient(ellipse at 12% 0%,#28235a 0%,transparent 35%), radial-gradient(ellipse at 95% 5%,#172e50 0%,transparent 35%), #080c18"
+    if st.session_state.workspace_theme == "Midnight Dark" else _theme_bg
+)
+_theme_surface_override = (
+    ".panel, .metric, .dash-feature, .tool-stat { background:#ffffff !important; border-color:#d8deea !important; }"
+    if st.session_state.workspace_theme == "Light Mode" else ""
+)
+_theme_hero_background = "#ffffff" if st.session_state.workspace_theme == "Light Mode" else "linear-gradient(115deg,#171e3e,#30265d 55%,#183451)"
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=Poppins:wght@400;500;600;700;800&family=Lora:wght@400;500;600;700&family=Nunito+Sans:wght@400;500;600;700;800;900&display=swap');
+.stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp div,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+.stApp input, .stApp textarea, .stApp button, .stApp select,
+[data-testid="stMarkdownContainer"], [data-testid="stChatMessage"] {{
+  font-family: '{_theme_font}', sans-serif !important;
+}}
+.stApp {{ color: {_theme_fg} !important; background: {_theme_app_background} !important; }}
+.hero {{ background: {_theme_hero_background} !important; }}
+{_theme_surface_override}
+.hero-title, .panel-title, .dash-feature h3, .metric-value {{ color: {_theme_fg} !important; }}
+.hero-label {{ color: {_theme_fg} !important; }}
+.hero-sub, .panel-desc, .small-muted, .metric-label, .dash-feature p {{ color: {_theme_fg} !important; }}
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea {{
+  background: {'#ffffff' if st.session_state.workspace_theme == 'Light Mode' else '#111a2d'} !important;
+  color: {_theme_fg} !important;
+}}
+.stApp p, .stApp li, .stApp label, .stApp [data-testid="stMarkdownContainer"] {{ color: {_theme_fg}; }}
+[data-testid="stSidebar"] {{ background: { _theme_sidebar } !important; }}
+[data-testid="stSidebar"] * {{ font-family: '{_theme_font}', sans-serif !important; }}
+[data-testid="stChatMessage"] {{ color: {_theme_fg} !important; }}
+[data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {{ color: {_theme_fg} !important; }}
+</style>
+""", unsafe_allow_html=True)
 
 page = st.session_state.page
 
@@ -1399,9 +1456,70 @@ elif page == "AI Chat":
     st.markdown("## ✦ AI Chat")
     st.caption("Ask anything. Your assistant is ready.")
 
-    for role, content in st.session_state.messages:
+    mode_col, format_col = st.columns(2)
+    with mode_col:
+        response_mode = st.selectbox(
+            "Response mode",
+            ["Balanced", "Deep analysis", "Step-by-step tutor", "Concise answer", "Creative mode"],
+            key="chat_response_mode"
+        )
+    with format_col:
+        output_format = st.selectbox(
+            "Answer format",
+            ["Automatic", "Structured bullets", "Table", "Checklist", "Examples first"],
+            key="chat_output_format"
+        )
+
+    followup_actions = [
+        ("Explain more", "Explain your previous answer in more detail with simple examples."),
+        ("Summarize", "Summarize your previous answer into the most important points."),
+        ("Give examples", "Give practical examples for your previous answer."),
+        ("Make a plan", "Turn your previous answer into a clear step-by-step action plan."),
+        ("Quiz me", "Create a short quiz based on your previous answer and ask one question at a time.")
+    ]
+
+    for message_index, (role, content) in enumerate(st.session_state.messages):
         with st.chat_message(role):
             st.markdown(content)
+        if role == "assistant":
+            action_cols = st.columns(5)
+            for action_index, (action_label, action_prompt) in enumerate(followup_actions):
+                with action_cols[action_index]:
+                    if st.button(action_label, key=f"answer_action_{message_index}_{action_index}", use_container_width=True):
+                        st.session_state.quick_prompt = action_prompt
+                        st.rerun()
+
+    if st.session_state.messages:
+        latest_assistant = next((m[1] for m in reversed(st.session_state.messages) if m[0] == "assistant"), "")
+        if latest_assistant:
+            speech_b64 = base64.b64encode(latest_assistant[:12000].encode("utf-8")).decode("ascii")
+            components.html(f"""
+            <div style="display:flex;gap:8px;align-items:center;font-family:Arial,sans-serif;">
+              <button id="ng-speak" style="border:1px solid #59658a;border-radius:10px;padding:9px 14px;background:#252f50;color:white;font-weight:700;cursor:pointer;">🔊 Read latest answer aloud</button>
+              <button id="ng-stop" style="border:1px solid #59658a;border-radius:10px;padding:9px 14px;background:#171f35;color:white;cursor:pointer;">Stop</button>
+              <span id="ng-voice-status" style="color:#aebbd7;font-size:12px;">Uses voices installed in this device/browser</span>
+            </div>
+            <script>
+            const textToSpeak = new TextDecoder().decode(Uint8Array.from(atob('{speech_b64}'), c => c.charCodeAt(0)));
+            const speakBtn = document.getElementById('ng-speak');
+            const stopBtn = document.getElementById('ng-stop');
+            const status = document.getElementById('ng-voice-status');
+            speakBtn.onclick = () => {{
+              if (!('speechSynthesis' in window)) {{ status.textContent = 'Speech is not supported in this browser.'; return; }}
+              window.speechSynthesis.cancel();
+              const utterance = new SpeechSynthesisUtterance(textToSpeak);
+              utterance.rate = 0.96; utterance.pitch = 1.0;
+              const voices = window.speechSynthesis.getVoices();
+              const preferred = voices.find(v => /en-IN|hi-IN/i.test(v.lang)) || voices.find(v => /en/i.test(v.lang));
+              if (preferred) utterance.voice = preferred;
+              utterance.onstart = () => status.textContent = 'Speaking…';
+              utterance.onend = () => status.textContent = 'Finished';
+              utterance.onerror = () => status.textContent = 'Voice playback failed.';
+              window.speechSynthesis.speak(utterance);
+            }};
+            stopBtn.onclick = () => {{ window.speechSynthesis.cancel(); status.textContent = 'Stopped'; }};
+            </script>
+            """, height=55)
 
     with st.container(border=True):
 
@@ -1437,12 +1555,14 @@ elif page == "AI Chat":
                 max_upload_size=20
             )
 
-    if submitted is not None:
+    quick_prompt = st.session_state.pop("quick_prompt", None)
+    if submitted is not None or quick_prompt:
 
-        user_text = submitted.text or ""
+        user_text = (submitted.text or "") if submitted is not None else quick_prompt
         file_context = ""
 
-        for uploaded in (submitted.files or []):
+        attached_files = submitted.files if submitted is not None else []
+        for uploaded in (attached_files or []):
 
             filename = uploaded.name.lower()
 
@@ -1478,7 +1598,7 @@ elif page == "AI Chat":
                     "is not enabled in this text-chat build."
                 )
 
-        if submitted.audio is not None:
+        if submitted is not None and submitted.audio is not None:
 
             with st.spinner("Converting your voice to text..."):
 
@@ -1503,12 +1623,18 @@ elif page == "AI Chat":
             )
 
             if len(st.session_state.messages) == 1:
-                set_chat_title(st.session_state.chat_id, user_text[:48])
+                set_chat_title(st.session_state.chat_id, USER_ID, user_text[:48])
 
             api_messages = [
                 {"role": role, "content": content}
                 for role, content in st.session_state.messages[-20:]
             ]
+            if api_messages:
+                api_messages[-1]["content"] += (
+                    f"\n\nResponse mode: {response_mode if 'response_mode' in locals() else st.session_state.chat_response_mode}. "
+                    f"Answer format: {output_format if 'output_format' in locals() else st.session_state.chat_output_format}. "
+                    "Follow this preference while keeping the answer accurate and readable."
+                )
 
             with st.spinner("NEXTGEN AI is thinking..."):
 
@@ -1549,6 +1675,36 @@ elif page == "AI Chat":
         f"Response engine: {st.session_state.last_provider} "
         "• Plus and Mic are built into the chat input."
     )
+
+# ============================================================
+# LIVE VOICE
+# ============================================================
+
+elif page == "Live Voice":
+    hero("Live Voice", "Voice interaction hub for speaking and listening.")
+    st.markdown("### Choose how to use voice")
+    voice_tab, call_tab, setup_tab = st.tabs(["Speak & Listen", "Live Calling", "Setup"])
+    with voice_tab:
+        st.write("Use the microphone in AI Chat to send a voice message. NEXTGEN AI can also read its latest answer aloud using voices installed on your device.")
+        st.info("Browser voices vary by device, operating system and browser. This free playback option is not the same as a studio-quality hosted voice model.")
+        if st.button("Open AI Chat for microphone input", use_container_width=True):
+            st.session_state.page = "AI Chat"
+            st.rerun()
+    with call_tab:
+        if CF_LIVE_URL:
+            st.success("A live voice endpoint is configured.")
+            st.link_button("Open Live Voice Session", CF_LIVE_URL, use_container_width=True)
+            st.caption("The configured endpoint opens separately. Its availability, call quality and provider charges depend on that service.")
+        else:
+            st.warning("Live calling is not connected yet.")
+            st.write("To enable a real two-way live call, configure CLOUDFLARE_VOICE_URL with your working voice-room or realtime-call URL in Streamlit Secrets.")
+    with setup_tab:
+        st.markdown("**Current voice capabilities**")
+        st.write("• Voice-to-text input in AI Chat through the configured Groq transcription key.")
+        st.write("• Read-aloud playback through the device/browser speech engine.")
+        st.write("• Optional external live-call endpoint through CLOUDFLARE_VOICE_URL.")
+        st.write("• A true embedded realtime call needs a working realtime provider endpoint and its own credentials; a normal API key alone does not create a calling service.")
+
 
 # ============================================================
 # AI IMAGE STUDIO
@@ -1854,7 +2010,19 @@ elif page == "Stock Market":
             "9. Common indicators": "Moving averages smooth price data. RSI measures recent momentum. MACD compares moving averages. Each can give false signals.",
             "10. Long-term investing vs trading": "Investing usually focuses on ownership and long-term business performance. Trading usually focuses on shorter-term price movements and often involves higher activity and costs.",
             "11. Fees, taxes and inflation": "Costs and taxes reduce returns. Inflation reduces purchasing power, so nominal gains are not the same as real gains.",
-            "12. Scams and emotional decisions": "Be cautious of guaranteed-return claims, pressure tactics, unregistered advisers and social-media tips. Never share OTPs or account credentials."
+            "12. Scams and emotional decisions": "Be cautious of guaranteed-return claims, pressure tactics, unregistered advisers and social-media tips. Never share OTPs or account credentials.",
+            "13. Reading financial statements": "Learn how the income statement, balance sheet and cash-flow statement describe different parts of a business.",
+            "14. Revenue, profit and margins": "Revenue is money earned from operations; profit is what remains after costs. Margins compare profit with revenue.",
+            "15. EPS and P/E ratio": "EPS relates profit to shares outstanding. P/E compares price with earnings; neither metric should be used alone.",
+            "16. Market capitalisation": "Market cap is share price multiplied by shares outstanding. It is one way to describe a company's market value.",
+            "17. Dividends": "Dividends are distributions a company may make to shareholders. They are not guaranteed and can be reduced or stopped.",
+            "18. Debt and interest coverage": "Debt can help fund growth but creates repayment obligations. Interest coverage compares operating earnings with interest expense.",
+            "19. Cash flow": "Operating cash flow shows cash generated by core operations. Profit and cash flow can differ for many accounting reasons.",
+            "20. Portfolio diversification": "Diversification spreads exposure across companies, sectors and asset types. Correlations can rise during market stress.",
+            "21. Volatility and drawdown": "Volatility describes variation in returns. Drawdown measures a decline from a previous portfolio peak.",
+            "22. Backtesting basics": "Backtesting checks a historical strategy against past data. It can suffer from overfitting, survivorship bias and unrealistic costs.",
+            "23. Order types": "Market, limit and stop orders behave differently. Availability and rules depend on the broker and exchange.",
+            "24. Investor psychology": "Fear, overconfidence and herd behaviour can affect decisions. A written plan and risk limits can reduce impulsive choices."
         }
         lesson_name = st.selectbox("Choose a lesson", list(lessons.keys()), key="market_lesson")
         st.markdown("### " + lesson_name)
@@ -1889,7 +2057,74 @@ elif page == "Stock Market":
         if st.session_state.get("market_chart_points"):
             points = st.session_state["market_chart_points"]
             st.markdown("#### " + st.session_state.get("market_chart_symbol_loaded", "Market") + " price history")
-            st.line_chart({"Close": [v for _, v in points]}, y_label="Price")
+            close_values = [v for _, v in points]
+            st.line_chart({"Close": close_values}, y_label="Price")
+
+            def sma(values, window):
+                return [None if i + 1 < window else sum(values[i + 1 - window:i + 1]) / window for i in range(len(values))]
+
+            def ema(values, window):
+                if not values:
+                    return []
+                alpha = 2 / (window + 1)
+                output = [values[0]]
+                for value in values[1:]:
+                    output.append(alpha * value + (1 - alpha) * output[-1])
+                return output
+
+            def rsi(values, window=14):
+                output = [None] * len(values)
+                if len(values) <= window:
+                    return output
+                gains = [max(values[i] - values[i - 1], 0) for i in range(1, len(values))]
+                losses = [max(values[i - 1] - values[i], 0) for i in range(1, len(values))]
+                avg_gain = sum(gains[:window]) / window
+                avg_loss = sum(losses[:window]) / window
+                output[window] = 100 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+                for i in range(window + 1, len(values)):
+                    avg_gain = (avg_gain * (window - 1) + gains[i - 1]) / window
+                    avg_loss = (avg_loss * (window - 1) + losses[i - 1]) / window
+                    output[i] = 100 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+                return output
+
+            sma20 = sma(close_values, 20)
+            sma50 = sma(close_values, 50)
+            ema12 = ema(close_values, 12)
+            ema26 = ema(close_values, 26)
+            macd_line = [a - b for a, b in zip(ema12, ema26)]
+            macd_signal = ema(macd_line, 9)
+            rsi14 = rsi(close_values, 14)
+            bollinger_mid = sma(close_values, 20)
+            bollinger_upper, bollinger_lower = [], []
+            for i, mid in enumerate(bollinger_mid):
+                if mid is None:
+                    bollinger_upper.append(None)
+                    bollinger_lower.append(None)
+                else:
+                    window_values = close_values[i + 1 - 20:i + 1]
+                    variance = sum((v - mid) ** 2 for v in window_values) / 20
+                    deviation = variance ** 0.5
+                    bollinger_upper.append(mid + 2 * deviation)
+                    bollinger_lower.append(mid - 2 * deviation)
+            indicator_cols = st.columns(5)
+            latest_rsi = next((v for v in reversed(rsi14) if v is not None), None)
+            indicator_cols[0].metric("RSI (14)", f"{latest_rsi:.2f}" if latest_rsi is not None else "Need 15+ points")
+            indicator_cols[1].metric("SMA (20)", f"{sma20[-1]:,.2f}" if sma20 and sma20[-1] is not None else "Need 20+ points")
+            indicator_cols[2].metric("EMA (12)", f"{ema12[-1]:,.2f}" if ema12 else "—")
+            indicator_cols[3].metric("MACD", f"{macd_line[-1]:,.3f}" if macd_line else "—")
+            indicator_cols[4].metric("Bollinger (20)", f"{bollinger_lower[-1]:,.2f} – {bollinger_upper[-1]:,.2f}" if bollinger_upper and bollinger_upper[-1] is not None else "Need 20+ points")
+            with st.expander("View technical indicator charts"):
+                series = {"Close": close_values, "EMA 12": ema12, "EMA 26": ema26, "Bollinger Upper": bollinger_upper, "Bollinger Mid": bollinger_mid, "Bollinger Lower": bollinger_lower}
+                if any(v is not None for v in sma20):
+                    series["SMA 20"] = sma20
+                if any(v is not None for v in sma50):
+                    series["SMA 50"] = sma50
+                st.line_chart(series, y_label="Price / moving average")
+                st.line_chart({"MACD": macd_line, "Signal": macd_signal}, y_label="MACD")
+                if latest_rsi is not None:
+                    st.line_chart({"RSI 14": [v if v is not None else 0 for v in rsi14]}, y_label="RSI (0–100)")
+                st.caption("Indicators are calculated from the loaded closing prices only: SMA, EMA, RSI, MACD and Bollinger Bands. They are educational descriptions, not buy/sell signals. RSI uses Wilder-style smoothing after its initial average.")
+
             start_price, end_price = points[0][1], points[-1][1]
             pct = ((end_price - start_price) / start_price * 100) if start_price else 0
             q1, q2, q3 = st.columns(3)
@@ -2181,6 +2416,12 @@ elif page == "About":
     - Website Builder
     - App Builder
     - Smart automatic web search
+    - Five response modes and five answer formats
+    - Five follow-up actions under each AI answer
+    - Workspace mood and font presets
+    - Browser read-aloud and microphone transcription
+    - Live Voice endpoint launcher
+    - Stock chart indicators: SMA, EMA, RSI and MACD
     - Coding School
     - PDF Assistant
     - Chat History
